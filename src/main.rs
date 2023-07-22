@@ -1,5 +1,5 @@
 use image::{RgbImage, ImageBuffer};
-mod vec3;
+use cgmath::Vector3;
 
 fn main() {
     // Image constants
