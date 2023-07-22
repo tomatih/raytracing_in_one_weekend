@@ -1,6 +1,18 @@
 use image::{RgbImage, ImageBuffer};
 use cgmath::Vector3;
 
+// intention aliases aliases
+type Point3 = Vector3<f32>;
+type Color = Vector3<f32>;
+
+fn to_pixel(color: Color) -> image::Rgb<u8>{
+    // convert values
+    let ir = (255.99 * color.x) as u8;
+    let ig = (255.99 * color.y) as u8;
+    let ib = (255.99 * color.z) as u8;
+    image::Rgb([ir, ig, ib])
+}
+
 fn main() {
     // Image constants
     const IMAGE_HEIGHT: u32 = 256;
@@ -13,16 +25,14 @@ fn main() {
     for j in (0..IMAGE_HEIGHT).rev() {
         print!("\rScanlines remaining {:3}", j);
         for i in 0..IMAGE_WIDTH{
-            // normalised values
-            let r = i as f32 / (IMAGE_WIDTH-1) as f32;
-            let g = j as f32 / (IMAGE_HEIGHT-1) as f32;
-            let b = 0.25;
-            // pixel values
-            let ir = (255.99 * r) as u8;
-            let ig = (255.99 * g) as u8;
-            let ib = (255.99 * b) as u8;
+            // create color
+            let color = Color::new(
+                i as f32 / (IMAGE_WIDTH-1) as f32,
+                j as f32 / (IMAGE_HEIGHT-1) as f32,
+                0.25
+            );
             // print pixel
-            img.put_pixel(i, IMAGE_HEIGHT-j-1, image::Rgb([ir, ig, ib]))
+            img.put_pixel(i, IMAGE_HEIGHT-j-1, to_pixel(color));
         }
     }
     println!("");
