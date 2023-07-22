@@ -13,6 +13,17 @@ fn to_pixel(color: Color) -> image::Rgb<u8>{
     image::Rgb([ir, ig, ib])
 }
 
+struct Ray{
+    origin: Point3,
+    direction: Vector3<f32>
+}
+
+impl Ray {
+    fn at(self, t: f32) -> Point3{
+        self.origin + t*self.direction
+    }
+}
+
 fn main() {
     // Image constants
     const IMAGE_HEIGHT: u32 = 256;
