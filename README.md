@@ -3,7 +3,7 @@ My attempt at working through the [_Ray Tracing in One Weekend_](https://raytrac
 
 # Progress
 - [x] Overview
-- [ ] Output an Image
+- [x] Output an Image
 - [ ] The vec3 Class
 - [ ] Rays, a Simple Camera, and Background
 - [ ] Adding a Sphere

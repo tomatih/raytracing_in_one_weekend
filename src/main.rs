@@ -9,7 +9,8 @@ fn main() {
     let mut img: RgbImage = ImageBuffer::new(IMAGE_WIDTH, IMAGE_HEIGHT);
 
     // Render image
-    for j in 1..=IMAGE_HEIGHT {
+    for j in (0..IMAGE_HEIGHT).rev() {
+        print!("\rScanlines remaining {:3}", j);
         for i in 0..IMAGE_WIDTH{
             // normalised values
             let r = i as f32 / (IMAGE_WIDTH-1) as f32;
@@ -20,9 +21,10 @@ fn main() {
             let ig = (255.99 * g) as u8;
             let ib = (255.99 * b) as u8;
             // print pixel
-            img.put_pixel(i, IMAGE_HEIGHT-j, image::Rgb([ir, ig, ib]))
+            img.put_pixel(i, IMAGE_HEIGHT-j-1, image::Rgb([ir, ig, ib]))
         }
     }
+    println!("");
     // save image
     img.save("out.png").expect("Faild to save image");
 }
