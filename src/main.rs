@@ -24,6 +24,50 @@ impl Ray {
     }
 }
 
+struct HitRecord{
+    p: Point3,
+    normal: Vector3<f32>,
+    t: f32
+}
+
+trait Hittable {
+    fn hit(&self, ray: &Ray, t_min: f32, t_max: f32, hit_record: &mut HitRecord) -> bool;
+}
+
+struct Sphere{
+    center: Point3,
+    radius: f32
+}
+
+impl Hittable for Sphere {
+    fn hit(&self, r: &Ray, t_min: f32, t_max: f32, hit_record: &mut HitRecord) -> bool {
+        let oc = r.origin - self.center;
+        let a = r.direction.magnitude2();
+        let half_b = oc.dot(r.direction);
+        let c = oc.magnitude2() - self.radius*self.radius;
+
+        let discriminant = half_b*half_b - a*c;
+        if discriminant < 0.0 {
+            return false;
+        }
+        let sqrtd = discriminant.sqrt();
+
+        // find the nearest root in the acceptable range
+        let mut root = (-half_b - sqrtd) /a;
+        if root < t_min || root > t_max {
+            root = (-half_b + sqrtd) /a;
+            if root < t_min || root > t_max{
+                return false;
+            }
+        }
+
+        (*hit_record).t =root;
+        (*hit_record).p = r.at(root);
+        (*hit_record).normal = (hit_record.p - self.center) / self.radius;
+        true
+    }
+}
+
 fn hit_sphere(center: Point3, radius: f32, r: &Ray) -> f32{
     let oc = r.origin - center;
     let a = r.direction.magnitude2();
