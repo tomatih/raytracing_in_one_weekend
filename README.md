@@ -2,7 +2,7 @@
 My attempt at working through the [_Ray Tracing in One Weekend_](https://raytracing.github.io/books/RayTracingInOneWeekend.html) book
 
 # Progress
-- [ ] Overview
+- [x] Overview
 - [ ] Output an Image
 - [ ] The vec3 Class
 - [ ] Rays, a Simple Camera, and Background
