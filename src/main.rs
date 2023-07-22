@@ -24,10 +24,29 @@ impl Ray {
     }
 }
 
+
+fn ray_color(ray: &Ray) -> Color {
+    let unit_direction = cgmath::InnerSpace::normalize(ray.direction);
+    let t = 0.5*(unit_direction.y + 1.0);
+    //(1.0-t)*Color::new(1.0, 1.0, 1.0) + t*Color::new(0.5, 0.7, 1.0)
+    cgmath::VectorSpace::lerp(Color::new(1.0, 1.0, 1.0), Color::new(0.5, 0.7, 1.0), t)
+}
+
 fn main() {
     // Image constants
-    const IMAGE_HEIGHT: u32 = 256;
-    const IMAGE_WIDTH: u32 = 256;
+    const ASPECT_RATIO: f32 = 16.0 / 9.0;
+    const IMAGE_WIDTH: u32 = 400;
+    const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 /ASPECT_RATIO) as u32;
+
+    // camera
+    let viewport_height = 2.0;
+    let viewport_width = ASPECT_RATIO * viewport_height;
+    let focal_length = 1.0;
+
+    let origin = Vector3::new(0.0, 0.0, 0.0);
+    let horizontal = Vector3::new(viewport_width, 0.0, 0.0);
+    let vertical = Vector3::new(0.0, viewport_height, 0.0);
+    let lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - Vector3::new(0.0, 0.0, focal_length);
 
     // Allocate image buffer
     let mut img: RgbImage = ImageBuffer::new(IMAGE_WIDTH, IMAGE_HEIGHT);
@@ -37,11 +56,12 @@ fn main() {
         print!("\rScanlines remaining {:3}", j);
         for i in 0..IMAGE_WIDTH{
             // create color
-            let color = Color::new(
-                i as f32 / (IMAGE_WIDTH-1) as f32,
-                j as f32 / (IMAGE_HEIGHT-1) as f32,
-                0.25
-            );
+            let u = i as f32 / (IMAGE_WIDTH - 1) as f32;
+            let v = j as f32 / (IMAGE_HEIGHT - 1) as f32;
+            let r = Ray{ origin,
+                direction: lower_left_corner+ u*horizontal + v*vertical - origin
+            };
+            let color = ray_color(&r);
             // print pixel
             img.put_pixel(i, IMAGE_HEIGHT-j-1, to_pixel(color));
         }
