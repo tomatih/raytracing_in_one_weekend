@@ -1,5 +1,5 @@
 use image::{RgbImage, ImageBuffer};
-use cgmath::Vector3;
+use cgmath::{Vector3, InnerSpace, VectorSpace};
 
 // intention aliases aliases
 type Point3 = Vector3<f32>;
@@ -24,12 +24,23 @@ impl Ray {
     }
 }
 
+fn hit_sphere(center: Point3, radius: f32, r: &Ray) -> bool{
+    let oc = r.origin - center;
+    let a = InnerSpace::dot(r.direction, r.direction);
+    let b = 2.0 * InnerSpace::dot(oc, r.direction);
+    let c = InnerSpace::dot(oc, oc) - radius*radius;
+    let discriminant = b*b - 4.0*a*c;
+    discriminant > 0.0
+}
 
 fn ray_color(ray: &Ray) -> Color {
-    let unit_direction = cgmath::InnerSpace::normalize(ray.direction);
+    if hit_sphere(Point3::new(0.0, 0.0, -1.0), 0.5, ray){
+        return Color::new(1.0, 0.0, 0.0);
+    }
+    let unit_direction = InnerSpace::normalize(ray.direction);
     let t = 0.5*(unit_direction.y + 1.0);
     //(1.0-t)*Color::new(1.0, 1.0, 1.0) + t*Color::new(0.5, 0.7, 1.0)
-    cgmath::VectorSpace::lerp(Color::new(1.0, 1.0, 1.0), Color::new(0.5, 0.7, 1.0), t)
+    VectorSpace::lerp(Color::new(1.0, 1.0, 1.0), Color::new(0.5, 0.7, 1.0), t)
 }
 
 fn main() {
