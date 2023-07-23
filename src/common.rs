@@ -1,4 +1,5 @@
-use cgmath::{Vector3, num_traits::clamp};
+use cgmath::{Vector3, num_traits::clamp, InnerSpace};
+use rand::Rng;
 
 // intention aliases aliases
 /// Vector used for the raytracer
@@ -18,4 +19,23 @@ pub fn to_pixel(color: Color, samples_per_pixel: i32) -> image::Rgb<u8>{
     let ig = (255.99 * clamp(color.y, 0.0, 0.999)) as u8;
     let ib = (255.99 * clamp(color.z, 0.0, 0.999)) as u8;
     image::Rgb([ir, ig, ib])
+}
+
+/// Create a random vector withing iven paramters
+pub fn rand_vec3(min: f32, max:f32) -> Vec3{
+    let mut rng = rand::thread_rng();
+    Vec3::new(
+        rng.gen_range(min..max),
+        rng.gen_range(min..max),
+        rng.gen_range(min..max),
+    )
+}
+
+/// Create a random vector within a unit spere
+pub fn random_in_unit_sphere() -> Vec3{
+    loop {
+        let p = rand_vec3(-1.0, 1.0);
+        if p.magnitude2() >= 1.0 {continue;}
+        return p;
+    }
 }

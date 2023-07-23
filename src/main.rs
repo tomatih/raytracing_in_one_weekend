@@ -1,4 +1,4 @@
-use common::{Point3, Color};
+use common::{Point3, Color, random_in_unit_sphere};
 use hit_record::HitRecord;
 use hittable::Hittable;
 use hittable_list::HittableList;
@@ -18,11 +18,12 @@ mod hittable_list;
 mod camera;
 
 /// Get colour of a ray
-fn ray_color(ray: &Ray, world: &HittableList) -> Color {
+fn ray_color(ray: Ray, world: &HittableList) -> Color {
     // check if ray hit any objects
     let mut hit_record = HitRecord::default();
-    if world.hit(ray, 0.0, f32::INFINITY, &mut hit_record) {
-        return 0.5 * (hit_record.normal + Color::new(1.0, 1.0, 1.0));
+    if world.hit(&ray, 0.0, f32::INFINITY, &mut hit_record) {
+        let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
+        return 0.5 * ray_color(Ray { origin: hit_record.p, direction: target - hit_record.p }, world);
     };
     // if not return a sky gradient
     let unit_direction = ray.direction.normalize();
@@ -58,7 +59,7 @@ fn main() {
                 let u = (i as f32 + rng.gen::<f32>()) / (IMAGE_WIDTH - 1) as f32;
                 let v = (j as f32 + rng.gen::<f32>()) / (IMAGE_HEIGHT - 1) as f32;
                 let ray = camera.get_ray(u, v);
-                pixel_color += ray_color(&ray, &world);
+                pixel_color += ray_color(ray, &world);
             }
             // print pixel
             img.put_pixel(i, IMAGE_HEIGHT-j-1, to_pixel(pixel_color, SAMPLES_PER_PIXEL));
