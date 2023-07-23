@@ -1,21 +1,17 @@
+use common::{Point3, Color};
+use hit_record::HitRecord;
+use hittable_list::HittableList;
 use image::{RgbImage, ImageBuffer};
 use cgmath::{Vector3, InnerSpace, VectorSpace};
-
-mod common;
-use common::*;
-
-mod ray;
 use ray::Ray;
 
+use crate::{sphere::Sphere, common::to_pixel};
+
+mod common;
+mod ray;
 mod hit_record;
-use hit_record::HitRecord;
-
 mod hittable;
-use hittable::Hittable;
-
 mod sphere;
-use sphere::Sphere;
-
 mod hittable_list;
 use hittable_list::HittableList;
 

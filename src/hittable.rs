@@ -1,4 +1,4 @@
-use crate::{Ray, HitRecord};
+use crate::{hit_record::HitRecord, ray::Ray};
 
 /// Allows rays to hit an object
 pub trait Hittable {

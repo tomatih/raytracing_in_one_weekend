@@ -1,6 +1,6 @@
 use cgmath::InnerSpace;
 
-use crate::{Vec3, Point3, Ray};
+use crate::{common::{Point3, Vec3}, ray::Ray};
 
 /// Data of the last hit by a ray
 pub struct HitRecord{

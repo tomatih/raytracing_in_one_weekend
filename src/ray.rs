@@ -1,4 +1,4 @@
-use crate::{Vec3, Point3};
+use crate::common::{Point3, Vec3};
 
 /// Simulated ray of light
 pub struct Ray{

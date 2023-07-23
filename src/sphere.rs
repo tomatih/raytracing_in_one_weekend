@@ -1,6 +1,6 @@
 use cgmath::InnerSpace;
 
-use crate::{Point3, Ray, HitRecord, Hittable};
+use crate::{common::Point3, hit_record::HitRecord, ray::Ray, hittable::Hittable};
 
 /// A sphere object
 pub struct Sphere{
