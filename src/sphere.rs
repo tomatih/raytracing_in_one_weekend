@@ -1,11 +1,12 @@
 use cgmath::InnerSpace;
 
-use crate::{common::Point3, hit_record::HitRecord, ray::Ray, hittable::Hittable};
+use crate::{common::Point3, hit_record::HitRecord, ray::Ray, hittable::Hittable, material::Material};
 
 /// A sphere object
 pub struct Sphere{
     pub center: Point3,
-    pub radius: f32
+    pub radius: f32,
+    pub material: Box<dyn Material>
 }
 
 impl Hittable for Sphere {
@@ -37,6 +38,7 @@ impl Hittable for Sphere {
         (*hit_record).p = r.at(root);
         let outward_normal = (hit_record.p - self.center) / self.radius;
         (*hit_record).set_face_normal(r, outward_normal);
+        (*hit_record).mat_ptr = self.material;
         true
     }
 }

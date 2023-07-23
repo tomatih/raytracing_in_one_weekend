@@ -1,12 +1,13 @@
 use cgmath::InnerSpace;
 
-use crate::{common::{Point3, Vec3}, ray::Ray};
+use crate::{common::{Point3, Vec3}, ray::Ray, material::Material};
 
 /// Data of the last hit by a ray
 pub struct HitRecord{
     pub p: Point3,
     pub normal: Vec3,
     pub t: f32,
+    pub mat_ptr: Box<dyn Material>,
     pub front_face: bool
 }
 
