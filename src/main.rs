@@ -18,12 +18,16 @@ mod hittable_list;
 mod camera;
 
 /// Get colour of a ray
-fn ray_color(ray: Ray, world: &HittableList) -> Color {
+fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
+    // Exceded ray bounce limit
+    if depth <= 0 {
+        return Color::new(0.0, 0.0, 0.0);
+    }
     // check if ray hit any objects
     let mut hit_record = HitRecord::default();
     if world.hit(&ray, 0.0, f32::INFINITY, &mut hit_record) {
         let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
-        return 0.5 * ray_color(Ray { origin: hit_record.p, direction: target - hit_record.p }, world);
+        return 0.5 * ray_color(Ray { origin: hit_record.p, direction: target - hit_record.p }, world, depth-1);
     };
     // if not return a sky gradient
     let unit_direction = ray.direction.normalize();
@@ -37,6 +41,7 @@ fn main() {
     const IMAGE_WIDTH: u32 = 400;
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 /ASPECT_RATIO) as u32;
     const SAMPLES_PER_PIXEL: i32 = 100;
+    const MAX_DEPTH: i32 = 50;
 
     // World
     let mut world = HittableList::new();
@@ -59,7 +64,7 @@ fn main() {
                 let u = (i as f32 + rng.gen::<f32>()) / (IMAGE_WIDTH - 1) as f32;
                 let v = (j as f32 + rng.gen::<f32>()) / (IMAGE_HEIGHT - 1) as f32;
                 let ray = camera.get_ray(u, v);
-                pixel_color += ray_color(ray, &world);
+                pixel_color += ray_color(ray, &world, MAX_DEPTH);
             }
             // print pixel
             img.put_pixel(i, IMAGE_HEIGHT-j-1, to_pixel(pixel_color, SAMPLES_PER_PIXEL));
