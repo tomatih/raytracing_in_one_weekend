@@ -32,10 +32,15 @@ pub fn rand_vec3(min: f32, max:f32) -> Vec3{
 }
 
 /// Create a random vector within a unit spere
-pub fn random_in_unit_sphere() -> Vec3{
+fn random_in_unit_sphere() -> Vec3{
     loop {
         let p = rand_vec3(-1.0, 1.0);
         if p.magnitude2() >= 1.0 {continue;}
         return p;
     }
+}
+
+/// Create a random unit vector
+pub fn random_unit_vector() -> Vec3{
+    random_in_unit_sphere().normalize()
 }

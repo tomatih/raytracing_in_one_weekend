@@ -1,4 +1,4 @@
-use common::{Point3, Color, random_in_unit_sphere};
+use common::{Point3, Color, random_unit_vector};
 use hit_record::HitRecord;
 use hittable::Hittable;
 use hittable_list::HittableList;
@@ -26,7 +26,7 @@ fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
     // check if ray hit any objects
     let mut hit_record = HitRecord::default();
     if world.hit(&ray, 0.001, f32::INFINITY, &mut hit_record) {
-        let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
+        let target = hit_record.p + hit_record.normal + random_unit_vector();
         return 0.5 * ray_color(Ray { origin: hit_record.p, direction: target - hit_record.p }, world, depth-1);
     };
     // if not return a sky gradient
