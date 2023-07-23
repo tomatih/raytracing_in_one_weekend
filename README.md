@@ -8,7 +8,7 @@ My attempt at working through the [_Ray Tracing in One Weekend_](https://raytrac
 - [x] Rays, a Simple Camera, and Background
 - [x] Adding a Sphere
 - [x] Surface Normals and Multiple Objects
-- [ ] Antialiasing
+- [x] Antialiasing
 - [ ] Diffuse Materials
 - [ ] Metal
 - [ ] Dielectrics
