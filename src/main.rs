@@ -25,7 +25,7 @@ fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
     }
     // check if ray hit any objects
     let mut hit_record = HitRecord::default();
-    if world.hit(&ray, 0.0, f32::INFINITY, &mut hit_record) {
+    if world.hit(&ray, 0.001, f32::INFINITY, &mut hit_record) {
         let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
         return 0.5 * ray_color(Ray { origin: hit_record.p, direction: target - hit_record.p }, world, depth-1);
     };
