@@ -10,6 +10,17 @@ pub struct HitRecord{
     pub front_face: bool
 }
 
+impl Default for HitRecord {
+    fn default() -> Self {
+        Self {
+            p: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 0.0),
+            t: 0.0,
+            front_face: false
+        }
+    }
+}
+
 impl HitRecord {
     /// Update front face and normal values
     pub fn set_face_normal(&mut self, r: &Ray, outward_normal: Vec3){

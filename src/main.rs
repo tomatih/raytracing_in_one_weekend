@@ -14,6 +14,9 @@ mod hittable;
 use hittable::Hittable;
 
 mod sphere;
+use sphere::Sphere;
+
+mod hittable_list;
 
 /// Return a point at which a ray hit a spere, or -1.0 if missed
 fn hit_sphere(center: Point3, radius: f32, r: &Ray) -> f32{
