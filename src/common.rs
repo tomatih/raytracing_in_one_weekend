@@ -15,9 +15,9 @@ pub fn to_pixel(color: Color, samples_per_pixel: i32) -> image::Rgb<u8>{
     let color = color / samples_per_pixel as f32;
 
     // convert values
-    let ir = (255.99 * clamp(color.x, 0.0, 0.999)) as u8;
-    let ig = (255.99 * clamp(color.y, 0.0, 0.999)) as u8;
-    let ib = (255.99 * clamp(color.z, 0.0, 0.999)) as u8;
+    let ir = (255.99 * clamp(color.x.sqrt(), 0.0, 0.999)) as u8;
+    let ig = (255.99 * clamp(color.y.sqrt(), 0.0, 0.999)) as u8;
+    let ib = (255.99 * clamp(color.z.sqrt(), 0.0, 0.999)) as u8;
     image::Rgb([ir, ig, ib])
 }
 
