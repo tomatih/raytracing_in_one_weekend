@@ -7,7 +7,7 @@ My attempt at working through the [_Ray Tracing in One Weekend_](https://raytrac
 - [x] The vec3 Class
 - [x] Rays, a Simple Camera, and Background
 - [x] Adding a Sphere
-- [ ] Surface Normals and Multiple Objects
+- [x] Surface Normals and Multiple Objects
 - [ ] Antialiasing
 - [ ] Diffuse Materials
 - [ ] Metal

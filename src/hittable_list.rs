@@ -20,7 +20,6 @@ impl HittableList {
 
 impl Hittable for HittableList {
     fn hit(&self, ray: &crate::ray::Ray, t_min: f32, t_max: f32, hit_record: &mut HitRecord) -> bool {
-        *hit_record = HitRecord::default();
         let mut hit_anything = false;
         let mut closest_so_far= t_max;
         

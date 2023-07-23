@@ -4,8 +4,8 @@ use crate::{Point3, Ray, HitRecord, Hittable};
 
 /// A sphere object
 pub struct Sphere{
-    center: Point3,
-    radius: f32
+    pub center: Point3,
+    pub radius: f32
 }
 
 impl Hittable for Sphere {
