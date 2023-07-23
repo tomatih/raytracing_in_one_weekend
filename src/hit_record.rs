@@ -1,6 +1,6 @@
 use cgmath::InnerSpace;
 
-use crate::{common::{Point3, Vec3}, ray::Ray, material::Material};
+use crate::{common::{Point3, Vec3, Color}, ray::Ray, material::Material, metal::Metal};
 
 /// Data of the last hit by a ray
 pub struct HitRecord{
@@ -17,7 +17,8 @@ impl Default for HitRecord {
             p: Point3::new(0.0, 0.0, 0.0),
             normal: Vec3::new(0.0, 0.0, 0.0),
             t: 0.0,
-            front_face: false
+            front_face: false,
+            mat_ptr: Box::new(Metal{ albedo: Color::new(0.0, 0.0, 0.0) })
         }
     }
 }

@@ -1,4 +1,4 @@
-use common::{Point3, Color, random_unit_vector};
+use common::{Point3, Color};
 use hit_record::HitRecord;
 use hittable::Hittable;
 use hittable_list::HittableList;
@@ -7,7 +7,9 @@ use ray::Ray;
 use cgmath::{InnerSpace, VectorSpace};
 use rand::Rng;
 
-use crate::{sphere::Sphere, common::to_pixel, camera::Camera};
+use crate::{sphere::Sphere, common::to_pixel, camera::Camera, lambertian::Lambertian, metal::Metal};
+
+//TODO: Fix references, this isn't C this can return Results and data packets
 
 mod common;
 mod ray;
@@ -18,6 +20,7 @@ mod hittable_list;
 mod camera;
 mod material;
 mod lambertian;
+mod metal;
 
 /// Get colour of a ray
 fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
@@ -28,8 +31,17 @@ fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
     // check if ray hit any objects
     let mut hit_record = HitRecord::default();
     if world.hit(&ray, 0.001, f32::INFINITY, &mut hit_record) {
-        let target = hit_record.p + hit_record.normal + random_unit_vector();
-        return 0.5 * ray_color(Ray { origin: hit_record.p, direction: target - hit_record.p }, world, depth-1);
+        let scattered = Ray{ origin: Point3::new(0.0, 0.0, 0.0), direction: Point3::new(0.0, 0.0, 0.0) };
+        let attenuation = Color::new(0.0, 0.0, 0.0);
+        if hit_record.mat_ptr.scatter(ray, &mut hit_record, &attenuation, &scattered){
+            let result =  ray_color(scattered, world, depth-1);
+            return Color::new(
+                result.x * attenuation.x,
+                result.y * attenuation.y,
+                result.z * attenuation.z
+            );
+        }
+        return Color::new(0.0, 0.0, 0.0);
     };
     // if not return a sky gradient
     let unit_direction = ray.direction.normalize();
@@ -47,8 +59,17 @@ fn main() {
 
     // World
     let mut world = HittableList::new();
-    world.add(Box::new(Sphere{ center: Point3::new(0.0, 0.0, -1.0), radius: 0.5 }));
-    world.add(Box::new(Sphere{ center: Point3::new(0.0, -100.5, -1.0), radius: 100.0 }));
+
+    let material_ground = Box::new(Lambertian{ albedo: Color::new(0.8, 0.8, 0.0) });
+    let material_center = Box::new(Lambertian{ albedo: Color::new(0.7, 0.3, 0.3) });
+    let material_left = Box::new(Metal{ albedo: Color::new(0.8, 0.8, 0.8)});
+    let material_right = Box::new(Metal{ albedo: Color::new(0.8, 0.6, 0.2) });
+
+    world.add(Box::new(Sphere{ center: Point3::new(0.0, -100.5, -1.0), radius: 100.0, material: material_ground }));
+    world.add(Box::new(Sphere{ center: Point3::new(0.0, 0.0, -1.0), radius: 0.5, material: material_center }));
+    world.add(Box::new(Sphere{ center: Point3::new(-1.0, 0.0, -1.0), radius: 0.5, material: material_left }));
+    world.add(Box::new(Sphere{ center: Point3::new(1.0, 0.0, -1.0), radius: 0.5, material: material_right }));
+
 
     // camera
     let camera = Camera::new();

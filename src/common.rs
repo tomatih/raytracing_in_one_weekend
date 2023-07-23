@@ -45,8 +45,14 @@ pub fn random_unit_vector() -> Vec3{
     random_in_unit_sphere().normalize()
 }
 
+/// Check if a vector is almost 0
 pub fn near_zero(vec: Vec3) -> bool{
     let epsilon = 1e-8;
 
     (vec.x.abs() < epsilon) && (vec.y.abs() < epsilon) && (vec.z.abs() < epsilon)
+}
+
+/// Reflect a vector over a different vector
+pub fn reflect(v: Vec3, n: Vec3) -> Vec3{
+    v - 2.0*n.dot(v)*n
 }
