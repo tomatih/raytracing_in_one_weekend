@@ -44,3 +44,9 @@ fn random_in_unit_sphere() -> Vec3{
 pub fn random_unit_vector() -> Vec3{
     random_in_unit_sphere().normalize()
 }
+
+pub fn near_zero(vec: Vec3) -> bool{
+    let epsilon = 1e-8;
+
+    (vec.x.abs() < epsilon) && (vec.y.abs() < epsilon) && (vec.z.abs() < epsilon)
+}

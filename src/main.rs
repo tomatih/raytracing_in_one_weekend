@@ -17,6 +17,7 @@ mod sphere;
 mod hittable_list;
 mod camera;
 mod material;
+mod lambertian;
 
 /// Get colour of a ray
 fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
