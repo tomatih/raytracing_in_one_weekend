@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use cgmath::InnerSpace;
 
 use crate::{common::Point3, hit_record::HitRecord, ray::Ray, hittable::Hittable, material::Material};
@@ -6,7 +7,7 @@ use crate::{common::Point3, hit_record::HitRecord, ray::Ray, hittable::Hittable,
 pub struct Sphere{
     pub center: Point3,
     pub radius: f32,
-    pub material: Box<dyn Material>
+    pub material: Rc<dyn Material>
 }
 
 impl Hittable for Sphere {
@@ -39,6 +40,6 @@ impl Hittable for Sphere {
         let outward_normal = (r.at(root) - self.center) / self.radius;
         //(*hit_record).set_face_normal(r, outward_normal);
         //(*hit_record).mat_ptr = self.material;
-        Some(HitRecord::new(r.at(root), root, self.material, r, outward_normal))
+        Some(HitRecord::new(r.at(root), root, Rc::clone(&self.material), r, outward_normal))
     }
 }
