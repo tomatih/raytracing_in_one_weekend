@@ -1,36 +1,26 @@
+use std::rc::Rc;
+
 use cgmath::InnerSpace;
 
-use crate::{common::{Point3, Vec3, Color}, ray::Ray, material::Material, metal::Metal};
+use crate::{common::{Point3, Vec3}, ray::Ray, material::Material};
 
 /// Data of the last hit by a ray
 pub struct HitRecord{
     pub p: Point3,
     pub normal: Vec3,
     pub t: f32,
-    pub mat_ptr: Box<dyn Material>,
+    pub mat_ptr: Rc<dyn Material>,
     pub front_face: bool
 }
 
-impl Default for HitRecord {
-    fn default() -> Self {
-        Self {
-            p: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 0.0),
-            t: 0.0,
-            front_face: false,
-            mat_ptr: Box::new(Metal{ albedo: Color::new(0.0, 0.0, 0.0) })
-        }
-    }
-}
-
 impl HitRecord {
-    /// Update front face and normal values
-    pub fn set_face_normal(&mut self, r: &Ray, outward_normal: Vec3){
-        self.front_face = r.direction.dot(outward_normal) < 0.0;
-        self.normal =  if self.front_face {
+    pub fn new(p: Point3, t: f32, mat_ptr: Rc<dyn Material>, r: &Ray, outward_normal: Vec3) -> Self {
+        let front_face = r.direction.dot(outward_normal) < 0.0;
+        let normal =  if front_face {
             outward_normal
         }else{
             -outward_normal
         };
+        Self { p, normal, t, mat_ptr, front_face }
     }
 }

@@ -10,7 +10,7 @@ pub struct Sphere{
 }
 
 impl Hittable for Sphere {
-    fn hit(&self, r: &Ray, t_min: f32, t_max: f32, hit_record: &mut HitRecord) -> bool {
+    fn hit(&self, r: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
         // quadratic setup
         let oc = r.origin - self.center;
         let a = r.direction.magnitude2();
@@ -20,7 +20,7 @@ impl Hittable for Sphere {
         // check if there are real solutions
         let discriminant = half_b*half_b - a*c;
         if discriminant < 0.0 {
-            return false;
+            return None;
         }
         let sqrtd = discriminant.sqrt();
 
@@ -29,16 +29,16 @@ impl Hittable for Sphere {
         if root < t_min || root > t_max {
             root = (-half_b + sqrtd) /a;
             if root < t_min || root > t_max{
-                return false;
+                return None;
             }
         }
 
         // update hit record
-        (*hit_record).t =root;
-        (*hit_record).p = r.at(root);
-        let outward_normal = (hit_record.p - self.center) / self.radius;
-        (*hit_record).set_face_normal(r, outward_normal);
-        (*hit_record).mat_ptr = self.material;
-        true
+        //(*hit_record).t =root;
+        //(*hit_record).p = r.at(root);
+        let outward_normal = (r.at(root) - self.center) / self.radius;
+        //(*hit_record).set_face_normal(r, outward_normal);
+        //(*hit_record).mat_ptr = self.material;
+        Some(HitRecord::new(r.at(root), root, self.material, r, outward_normal))
     }
 }

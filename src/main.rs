@@ -29,11 +29,10 @@ fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
         return Color::new(0.0, 0.0, 0.0);
     }
     // check if ray hit any objects
-    let mut hit_record = HitRecord::default();
-    if world.hit(&ray, 0.001, f32::INFINITY, &mut hit_record) {
-        let scattered = Ray{ origin: Point3::new(0.0, 0.0, 0.0), direction: Point3::new(0.0, 0.0, 0.0) };
-        let attenuation = Color::new(0.0, 0.0, 0.0);
-        if hit_record.mat_ptr.scatter(ray, &mut hit_record, &attenuation, &scattered){
+    if let Some(hit_record) =  world.hit(&ray, 0.001, f32::INFINITY){
+        let mut scattered = Ray{ origin: Point3::new(0.0, 0.0, 0.0), direction: Point3::new(0.0, 0.0, 0.0) };
+        let mut attenuation = Color::new(0.0, 0.0, 0.0);
+        if hit_record.mat_ptr.scatter(ray, &mut hit_record, &mut attenuation, &mut scattered){
             let result =  ray_color(scattered, world, depth-1);
             return Color::new(
                 result.x * attenuation.x,
