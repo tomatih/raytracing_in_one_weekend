@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
 use common::{Point3, Color};
-use hit_record::HitRecord;
 use hittable::Hittable;
 use hittable_list::HittableList;
 use image::{RgbImage, ImageBuffer};
@@ -32,9 +31,9 @@ fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
     }
     // check if ray hit any objects
     if let Some(hit_record) =  world.hit(&ray, 0.001, f32::INFINITY){
-        let mut scattered = Ray{ origin: Point3::new(0.0, 0.0, 0.0), direction: Point3::new(0.0, 0.0, 0.0) };
-        let mut attenuation = Color::new(0.0, 0.0, 0.0);
-        if hit_record.mat_ptr.scatter(ray, &mut hit_record, &mut attenuation, &mut scattered){
+        //let mut scattered = Ray{ origin: Point3::new(0.0, 0.0, 0.0), direction: Point3::new(0.0, 0.0, 0.0) };
+        //let mut attenuation = Color::new(0.0, 0.0, 0.0);
+        if let Some((attenuation, scattered)) = hit_record.mat_ptr.scatter(ray, &hit_record){
             let result =  ray_color(scattered, world, depth-1);
             return Color::new(
                 result.x * attenuation.x,
