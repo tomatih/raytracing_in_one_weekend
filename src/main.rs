@@ -1,5 +1,4 @@
 use std::rc::Rc;
-
 use common::{Point3, Color};
 use hittable::Hittable;
 use hittable_list::HittableList;
@@ -9,8 +8,6 @@ use cgmath::{InnerSpace, VectorSpace};
 use rand::Rng;
 
 use crate::{sphere::Sphere, common::to_pixel, camera::Camera, lambertian::Lambertian, metal::Metal};
-
-//TODO: Fix references, this isn't C this can return Results and data packets
 
 mod common;
 mod ray;
@@ -31,22 +28,27 @@ fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
     }
     // check if ray hit any objects
     if let Some(hit_record) =  world.hit(&ray, 0.001, f32::INFINITY){
-        //let mut scattered = Ray{ origin: Point3::new(0.0, 0.0, 0.0), direction: Point3::new(0.0, 0.0, 0.0) };
-        //let mut attenuation = Color::new(0.0, 0.0, 0.0);
+        // if the ray scatters further
         if let Some((attenuation, scattered)) = hit_record.mat_ptr.scatter(ray, &hit_record){
+            // bounce new ray
             let result =  ray_color(scattered, world, depth-1);
-            return Color::new(
+            Color::new(
                 result.x * attenuation.x,
                 result.y * attenuation.y,
                 result.z * attenuation.z
-            );
+            )
         }
-        return Color::new(0.0, 0.0, 0.0);
-    };
+        // ray got absorbed
+        else{
+            Color::new(0.0, 0.0, 0.0)
+        }
+    }
     // if not return a sky gradient
-    let unit_direction = ray.direction.normalize();
-    let t = 0.5*(unit_direction.y + 1.0);
-    Color::new(1.0, 1.0, 1.0).lerp(Color::new(0.5, 0.7, 1.0), t)
+    else{
+        let unit_direction = ray.direction.normalize();
+        let t = 0.5*(unit_direction.y + 1.0);
+        Color::new(1.0, 1.0, 1.0).lerp(Color::new(0.5, 0.7, 1.0), t)
+    }
 }
 
 fn main() {
@@ -59,12 +61,12 @@ fn main() {
 
     // World
     let mut world = HittableList::new();
-
+    // materials
     let material_ground = Rc ::new(Lambertian{ albedo: Color::new(0.8, 0.8, 0.0) });
     let material_center = Rc::new(Lambertian{ albedo: Color::new(0.7, 0.3, 0.3) });
     let material_left = Rc::new(Metal{ albedo: Color::new(0.8, 0.8, 0.8)});
     let material_right = Rc::new(Metal{ albedo: Color::new(0.8, 0.6, 0.2) });
-
+    // objects
     world.add(Box::new(Sphere{ center: Point3::new(0.0, -100.5, -1.0), radius: 100.0, material: material_ground }));
     world.add(Box::new(Sphere{ center: Point3::new(0.0, 0.0, -1.0), radius: 0.5, material: material_center }));
     world.add(Box::new(Sphere{ center: Point3::new(-1.0, 0.0, -1.0), radius: 0.5, material: material_left }));
