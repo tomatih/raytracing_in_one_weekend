@@ -1,6 +1,6 @@
 use cgmath::InnerSpace;
 
-use crate::{ray::Ray, hit_system::HitRecord, common::{Color, refract}};
+use crate::{ray::Ray, hit_system::HitRecord, common::{Color, refract, reflect}};
 
 use super::Material;
 
@@ -16,9 +16,17 @@ impl Material for Dielectric {
         else{
             self.ir
         };
-        
+
         let unit_direction = ray_in.direction.normalize();
-        let direction = refract(unit_direction, hit_record.normal, refraction_ratio);
+
+        let cos_theta = hit_record.normal.dot(-unit_direction).min(1.0);
+        let sin_theta = (1.0 - cos_theta*cos_theta).sqrt();
+
+        let direction = if refraction_ratio* sin_theta > 1.0{
+            reflect(unit_direction, hit_record.normal)
+        } else {
+            refract(unit_direction, hit_record.normal, refraction_ratio)
+        };
         
         Some((Color::new(1.0, 1.0, 1.0), Ray{ origin: hit_record.p, direction}))
     }
