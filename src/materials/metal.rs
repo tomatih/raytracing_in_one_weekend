@@ -1,6 +1,7 @@
 use cgmath::InnerSpace;
+use crate::{common::{Color, reflect}, ray::Ray, hit_system::HitRecord};
 
-use crate::{common::{Color, reflect}, material::Material, ray::Ray, hit_record::HitRecord};
+use super::Material;
 
 pub struct Metal{
     pub albedo: Color

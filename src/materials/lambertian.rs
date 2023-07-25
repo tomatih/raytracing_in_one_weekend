@@ -1,4 +1,5 @@
-use crate::{common::{Color, random_unit_vector, near_zero}, material::Material, ray::Ray, hit_record::HitRecord};
+use crate::{common::{Color, random_unit_vector, near_zero}, ray::Ray, hit_system::HitRecord};
+use super::Material;
 
 pub struct Lambertian{
     pub albedo: Color

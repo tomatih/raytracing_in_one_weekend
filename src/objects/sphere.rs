@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use cgmath::InnerSpace;
 
-use crate::{common::Point3, hit_record::HitRecord, ray::Ray, hittable::Hittable, material::Material};
+use crate::{common::Point3, ray::Ray, materials::Material, hit_system::{HitRecord, Hittable}};
 
 /// A sphere object
 pub struct Sphere{

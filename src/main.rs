@@ -1,24 +1,23 @@
-use std::rc::Rc;
-use common::{Point3, Color};
-use hittable::Hittable;
-use hittable_list::HittableList;
-use image::{RgbImage, ImageBuffer};
-use ray::Ray;
-use cgmath::{InnerSpace, VectorSpace};
-use rand::Rng;
-
-use crate::{sphere::Sphere, common::to_pixel, camera::Camera, lambertian::Lambertian, metal::Metal};
-
+// project modules
 mod common;
 mod ray;
-mod hit_record;
-mod hittable;
-mod sphere;
-mod hittable_list;
 mod camera;
-mod material;
-mod lambertian;
-mod metal;
+mod objects;
+mod materials;
+mod hit_system;
+// external imports
+use std::rc::Rc;
+use rand::Rng;
+use image::{RgbImage, ImageBuffer};
+use cgmath::{InnerSpace, VectorSpace};
+// own imports
+use common::{Point3, Color, to_pixel};
+use ray::Ray;
+use camera::Camera;
+use objects::Sphere;
+use materials::{Lambertian, Metal};
+use hit_system::{HittableList, Hittable};
+
 
 /// Get colour of a ray
 fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {

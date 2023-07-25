@@ -1,4 +1,4 @@
-use crate::{hit_record::HitRecord, hittable::Hittable};
+use super::{Hittable, HitRecord};
 
 pub struct HittableList{
     objects: Vec<Box<dyn Hittable>>

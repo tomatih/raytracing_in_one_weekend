@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use cgmath::InnerSpace;
 
-use crate::{common::{Point3, Vec3}, ray::Ray, material::Material};
+use crate::{common::{Point3, Vec3}, ray::Ray, materials::Material};
 
 /// Data of the last hit by a ray
 pub struct HitRecord{

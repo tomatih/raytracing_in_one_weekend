@@ -1,4 +1,4 @@
-use crate::{ray::Ray, hit_record::HitRecord, common::Color};
+use crate::{ray::Ray, common::Color, hit_system::HitRecord};
 
 /// Allows materials to scatter light
 pub trait Material {
