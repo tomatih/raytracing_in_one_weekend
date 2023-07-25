@@ -18,6 +18,8 @@ use objects::Sphere;
 use materials::{Lambertian, Metal};
 use hit_system::{HittableList, Hittable};
 
+use crate::materials::Dielectric;
+
 
 /// Get colour of a ray
 fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
@@ -61,9 +63,12 @@ fn main() {
     // World
     let mut world = HittableList::new();
     // materials
+    let glass = Rc::new(Dielectric{ir: 1.5});
     let material_ground = Rc ::new(Lambertian{ albedo: Color::new(0.8, 0.8, 0.0) });
-    let material_center = Rc::new(Lambertian{ albedo: Color::new(0.7, 0.3, 0.3) });
-    let material_left = Rc::new(Metal{ albedo: Color::new(0.8, 0.8, 0.8)});
+    //let material_center = Rc::new(Lambertian{ albedo: Color::new(0.7, 0.3, 0.3) });
+    let material_center = glass.clone();
+    //let material_left = Rc::new(Metal{ albedo: Color::new(0.8, 0.8, 0.8)});
+    let material_left = glass.clone();
     let material_right = Rc::new(Metal{ albedo: Color::new(0.8, 0.6, 0.2) });
     //let material_right = Rc::new(TrueBlack);
     // objects
