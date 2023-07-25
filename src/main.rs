@@ -65,11 +65,11 @@ fn main() {
     // materials
     let glass = Rc::new(Dielectric{ir: 1.5});
     let material_ground = Rc ::new(Lambertian{ albedo: Color::new(0.8, 0.8, 0.0) });
-    //let material_center = Rc::new(Lambertian{ albedo: Color::new(0.7, 0.3, 0.3) });
-    let material_center = glass.clone();
-    //let material_left = Rc::new(Metal{ albedo: Color::new(0.8, 0.8, 0.8)});
-    let material_left = glass.clone();
-    let material_right = Rc::new(Metal{ albedo: Color::new(0.8, 0.6, 0.2) });
+    let material_center = Rc::new(Lambertian{ albedo: Color::new(0.7, 0.3, 0.3) });
+    //let material_center = glass.clone();
+    let material_left = Rc::new(Metal::new(Color::new(0.8, 0.8, 0.8), 0.3));
+    //let material_left = glass.clone();
+    let material_right = Rc::new(Metal::new(Color::new(0.8, 0.6, 0.2), 1.0));
     //let material_right = Rc::new(TrueBlack);
     // objects
     world.add(Box::new(Sphere{ center: Point3::new(0.0, -100.5, -1.0), radius: 100.0, material: material_ground }));
