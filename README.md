@@ -10,7 +10,7 @@ My attempt at working through the [_Ray Tracing in One Weekend_](https://raytrac
 - [x] Surface Normals and Multiple Objects
 - [x] Antialiasing
 - [x] Diffuse Materials
-- [ ] Metal
-- [ ] Dielectrics
+- [x] Metal
+- [x] Dielectrics
 - [ ] Positionable Camera
 - [ ] Defocus Blur
