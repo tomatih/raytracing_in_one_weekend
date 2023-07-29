@@ -1,5 +1,5 @@
 use crate::{common::{Point3, Vec3}, ray::Ray};
-use cgmath::Angle;
+use cgmath::{Angle, InnerSpace};
 
 pub struct Camera{
     origin: Point3,
@@ -9,21 +9,24 @@ pub struct Camera{
 }
 
 impl Camera {
-    pub fn new(vfov: cgmath::Deg<f32>,aspect_ratio: f32) -> Self {
+    pub fn new(look_from: Point3, look_at: Point3, up: Vec3,vfov: cgmath::Deg<f32>,aspect_ratio: f32) -> Self {
         //fov
         let h = (vfov/2.0).tan();
         // properties
         let viewport_height = 2.0 * h;
         let viewport_width = aspect_ratio * viewport_height;
-        let focal_length = 1.0;
+        // unit vectors
+        let w = (look_from- look_at).normalize();
+        let u = up.cross(w).normalize();
+        let v = w.cross(u);
         // viewport dimentions
-        let horizontal = Vec3::new(viewport_width, 0.0, 0.0);
-        let vertical = Vec3::new(0.0, viewport_height, 0.0);
-        let origin = Vec3::new(0.0, 0.0, 0.0);
+        let horizontal = viewport_width * u;
+        let vertical = viewport_height * v;
+        let origin = look_from;
         // construct camera
         Self {
             origin,
-            lower_left_corner: origin- horizontal/2.0 - vertical/2.0 - Vec3::new(0.0, 0.0, focal_length),
+            lower_left_corner: origin- horizontal/2.0 - vertical/2.0 - w,
             horizontal,
             vertical,
         }

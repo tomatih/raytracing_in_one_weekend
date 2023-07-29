@@ -12,5 +12,5 @@ My attempt at working through the [_Ray Tracing in One Weekend_](https://raytrac
 - [x] Diffuse Materials
 - [x] Metal
 - [x] Dielectrics
-- [ ] Positionable Camera
+- [x] Positionable Camera
 - [ ] Defocus Blur
