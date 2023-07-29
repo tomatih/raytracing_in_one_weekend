@@ -9,7 +9,7 @@ mod hit_system;
 use std::rc::Rc;
 use rand::Rng;
 use image::{RgbImage, ImageBuffer};
-use cgmath::{InnerSpace, VectorSpace, Deg, Angle};
+use cgmath::{InnerSpace, VectorSpace, Deg};
 // own imports
 use common::{Point3, Color, to_pixel};
 use ray::Ray;
@@ -52,37 +52,73 @@ fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
     }
 }
 
+/// Generate a scene fileld with random spheres
+fn randon_scene() -> HittableList{
+    let mut out = HittableList::new();
+
+    // the ground
+    let ground_material = Rc::new(Lambertian{ albedo: Color::new(0.5, 0.5, 0.5)});
+    out.add(Box::new(Sphere{ center: Vec3::new(0.0, -1000.0, 0.0), radius: 1000.0, material: ground_material}));
+
+    // the reandom speres
+    let mut rng = rand::thread_rng();
+    for a in -11..11 {
+        for b in -11..11{
+            let material_coice = rng.gen::<f32>();
+            let center = Point3::new((a as f32)+0.9*rng.gen::<f32>(), 0.2, (b as f32)+0.9*rng.gen::<f32>());
+
+            if (center - Vec3::new(4.0, 0.2, 0.0)).magnitude() > 0.9{
+                out.add(Box::new(Sphere{ center, radius: 0.2,
+                    material: if material_coice  < 0.8{
+                        Rc::new(Lambertian{albedo: Color::new(
+                            rng.gen::<f32>() * rng.gen::<f32>(),
+                            rng.gen::<f32>() * rng.gen::<f32>(),
+                            rng.gen::<f32>() * rng.gen::<f32>()
+                        )})
+                    }
+                    else if material_coice < 0.95{
+                        Rc::new(Metal::new(Color::new(rng.gen(), rng.gen(), rng.gen()), rng.gen_range(0.0..0.5)))
+                    }
+                    else{
+                        Rc::new(Dielectric{ ir: 1.5 })
+                    }
+                }));
+            }
+
+        }
+    }
+
+    let material1 = Rc::new(Dielectric{ir:1.5});
+    out.add(Box::new(Sphere{ center: Vec3::new(0.0, 1.0, 0.0), radius: 1.0, material: material1 }));
+
+    let material2 = Rc::new(Lambertian{albedo: Color::new(0.4, 0.2, 0.1)});
+    out.add(Box::new(Sphere{ center: Vec3::new(-4.0, 1.0, 0.0), radius: 1.0, material: material2 }));
+
+    let material3 = Rc::new(Metal::new(Color::new(0.7, 0.6, 0.7), 0.0));
+    out.add(Box::new(Sphere{ center: Vec3::new(4.0, 1.0, 0.0), radius: 1.0, material: material3 }));
+
+    out
+}
+
+
 fn main() {
     // Image constants
-    const ASPECT_RATIO: f32 = 16.0 / 9.0;
-    const IMAGE_WIDTH: u32 = 400;
+    const ASPECT_RATIO: f32 = 3.0 / 2.0;
+    const IMAGE_WIDTH: u32 = 1200;
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 /ASPECT_RATIO) as u32;
-    const SAMPLES_PER_PIXEL: i32 = 100;
+    const SAMPLES_PER_PIXEL: i32 = 500;
     const MAX_DEPTH: i32 = 50;
 
     // World
-    let mut world = HittableList::new();
-    // materials
-    let material_ground = Rc ::new(Lambertian{ albedo: Color::new(0.8, 0.8, 0.0) });
-    let material_center = Rc::new(Lambertian{ albedo: Color::new(0.1, 0.2, 0.5) });
-    //let material_left = Rc::new(Metal::new(Color::new(0.8, 0.8, 0.8), 0.3));
-    let material_left =  Rc::new(Dielectric{ir: 1.5});
-    let material_right = Rc::new(Metal::new(Color::new(0.8, 0.6, 0.2), 0.0));
-    //let material_right = Rc::new(TrueBlack);
-    // objects
-    world.add(Box::new(Sphere{ center: Point3::new(0.0, -100.5, -1.0), radius: 100.0, material: material_ground }));
-    world.add(Box::new(Sphere{ center: Point3::new(0.0, 0.0, -1.0), radius: 0.5, material: material_center }));
-    world.add(Box::new(Sphere{ center: Point3::new(-1.0, 0.0, -1.0), radius: 0.5, material: material_left.clone() }));
-    world.add(Box::new(Sphere{ center: Point3::new(-1.0, 0.0, -1.0), radius: -0.4, material: material_left }));
-    world.add(Box::new(Sphere{ center: Point3::new(1.0, 0.0, -1.0), radius: 0.5, material: material_right }));
+    let world = randon_scene();
 
     // camera
-    let look_from = Point3::new(3.0, 3.0, 2.0);
-    let look_at = Point3::new(0.0, 0.0, -1.0);
+    let look_from = Point3::new(13.0, 2.0, 3.0);
+    let look_at = Point3::new(0.0, 0.0, 0.0);
     let up = Vec3::unit_y();
-    let distance_to_focus = (look_from-look_at).magnitude();
-    let apeture = 2.0;
-    let camera = Camera::new(look_from,look_at,up,Deg(20.0), 16.0/9.0, apeture, distance_to_focus);
+    let distance_to_focus = 10.0;
+    let apeture = 0.1;
+    let camera = Camera::new(look_from,look_at,up,Deg(20.0), ASPECT_RATIO, apeture, distance_to_focus);
 
     // Allocate image buffer
     let mut img: RgbImage = ImageBuffer::new(IMAGE_WIDTH, IMAGE_HEIGHT);
