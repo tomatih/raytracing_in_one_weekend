@@ -9,7 +9,7 @@ mod hit_system;
 use std::rc::Rc;
 use rand::Rng;
 use image::{RgbImage, ImageBuffer};
-use cgmath::{InnerSpace, VectorSpace};
+use cgmath::{InnerSpace, VectorSpace, Deg, Angle};
 // own imports
 use common::{Point3, Color, to_pixel};
 use ray::Ray;
@@ -62,7 +62,7 @@ fn main() {
 
     // World
     let mut world = HittableList::new();
-    // materials
+    /*// materials
     let material_ground = Rc ::new(Lambertian{ albedo: Color::new(0.8, 0.8, 0.0) });
     let material_center = Rc::new(Lambertian{ albedo: Color::new(0.1, 0.2, 0.5) });
     //let material_left = Rc::new(Metal::new(Color::new(0.8, 0.8, 0.8), 0.3));
@@ -74,11 +74,19 @@ fn main() {
     world.add(Box::new(Sphere{ center: Point3::new(0.0, 0.0, -1.0), radius: 0.5, material: material_center }));
     world.add(Box::new(Sphere{ center: Point3::new(-1.0, 0.0, -1.0), radius: 0.5, material: material_left.clone() }));
     world.add(Box::new(Sphere{ center: Point3::new(-1.0, 0.0, -1.0), radius: -0.4, material: material_left }));
-    world.add(Box::new(Sphere{ center: Point3::new(1.0, 0.0, -1.0), radius: 0.5, material: material_right }));
+    world.add(Box::new(Sphere{ center: Point3::new(1.0, 0.0, -1.0), radius: 0.5, material: material_right }));*/
+
+    let r = cgmath::Rad(std::f32::consts::PI / 4.0).cos();
+    let material_left = Rc::new(Lambertian{albedo: Color::new(0.0, 0.0, 1.0) });
+    let material_right = Rc::new(Lambertian{albedo: Color::new(1.0, 0.0, 0.0) });
+
+
+    world.add(Box::new(Sphere{ center: Point3::new(-r, 0.0,-1.0), radius: r, material: material_left }));
+    world.add(Box::new(Sphere{ center: Point3::new( r, 0.0,-1.0), radius: r, material: material_right }));
 
 
     // camera
-    let camera = Camera::new();
+    let camera = Camera::new(Deg(90.0), 16.0/9.0);
 
     // Allocate image buffer
     let mut img: RgbImage = ImageBuffer::new(IMAGE_WIDTH, IMAGE_HEIGHT);
