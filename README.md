@@ -13,4 +13,4 @@ My attempt at working through the [_Ray Tracing in One Weekend_](https://raytrac
 - [x] Metal
 - [x] Dielectrics
 - [x] Positionable Camera
-- [ ] Defocus Blur
+- [x] Defocus Blur

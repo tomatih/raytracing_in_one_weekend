@@ -77,7 +77,12 @@ fn main() {
     world.add(Box::new(Sphere{ center: Point3::new(1.0, 0.0, -1.0), radius: 0.5, material: material_right }));
 
     // camera
-    let camera = Camera::new(Point3::new(-2.0, 2.0, 1.0),Point3::new(0.0, 0.0, -1.0),Vec3::unit_y(),Deg(20.0), 16.0/9.0);
+    let look_from = Point3::new(3.0, 3.0, 2.0);
+    let look_at = Point3::new(0.0, 0.0, -1.0);
+    let up = Vec3::unit_y();
+    let distance_to_focus = (look_from-look_at).magnitude();
+    let apeture = 2.0;
+    let camera = Camera::new(look_from,look_at,up,Deg(20.0), 16.0/9.0, apeture, distance_to_focus);
 
     // Allocate image buffer
     let mut img: RgbImage = ImageBuffer::new(IMAGE_WIDTH, IMAGE_HEIGHT);
