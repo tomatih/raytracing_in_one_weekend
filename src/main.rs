@@ -13,12 +13,13 @@ use std::rc::Rc;
 use rand::Rng;
 use cgmath::{InnerSpace, VectorSpace, Deg};
 */
+use std::sync::Arc;
 use image::{Rgba, ImageBuffer};
 // Vulkan inports
 use vulkano::{
     VulkanLibrary,
     instance::{Instance, InstanceCreateInfo},
-    device::{QueueFlags, Device, DeviceCreateInfo, QueueCreateInfo},
+    device::{QueueFlags, Device, DeviceCreateInfo, QueueCreateInfo, physical::PhysicalDevice, Queue},
     memory::allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryUsage},
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
@@ -211,17 +212,21 @@ mod cs {
     }
 }
 
-fn main (){
-    // init vulkan
+fn get_vulkan_instance() -> Arc<Instance>{
     let library = VulkanLibrary::new().expect("no local Vulkan library/DLL");
-    let instance = Instance::new(library, InstanceCreateInfo::default()).expect("failed to create instance");
-    // get physical device
-    let physical_device = instance
+    Instance::new(library, InstanceCreateInfo::default()).expect("failed to create instance")
+}
+
+fn get_physical_device(instance: Arc<Instance>) -> Arc<PhysicalDevice>{
+    //TODO: add choice criteria
+    instance
         .enumerate_physical_devices()
         .expect("Could not enumerate devices")
         .next()
-        .expect("no devices avaiable");
+        .expect("no devices avaiable")
+}
 
+fn get_logical_device(physical_device: Arc<PhysicalDevice>) -> (Arc<Device>, Arc<Queue>){
     // find suitable queues
     let queue_family_index = physical_device
         .queue_family_properties()
@@ -231,6 +236,7 @@ fn main (){
             queue_family_properties.queue_flags.contains(QueueFlags::GRAPHICS)
         }).expect("couldn't find a graphical queue family") as u32;
 
+    //create object
     // get logical device and queues
     let (device, mut queues) = Device::new(
         physical_device,
@@ -243,10 +249,18 @@ fn main (){
         }
     ).expect("failed to create device");
 
+    (device, queues.next().unwrap())
+}
+
+fn main (){
+    // init vulkan
+    let instance = get_vulkan_instance();
+    let physical_device = get_physical_device(instance);
+    let (device, queue) = get_logical_device(physical_device);
+    
+    // load shader
     let shader = cs::load(device.clone()).expect("Failed to load shader module");
 
-    // get the queue
-    let queue = queues.next().unwrap();
     // create a memory allocator
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
 
@@ -311,9 +325,7 @@ fn main (){
         queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit
     ).unwrap();
-
-    // let work_group_counts = [1024, 1, 1];
-
+    
     builder
         .bind_pipeline_compute(compute_pipeline.clone())
         .bind_descriptor_sets(
