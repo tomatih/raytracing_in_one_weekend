@@ -1,16 +1,39 @@
 // project modules
+/*
 mod common;
 mod ray;
 mod camera;
 mod objects;
 mod materials;
 mod hit_system;
+*/
 // external imports
+/*
 use std::rc::Rc;
 use rand::Rng;
 use image::{RgbImage, ImageBuffer};
 use cgmath::{InnerSpace, VectorSpace, Deg};
+*/
+// Vulkan inports
+use vulkano::{
+    VulkanLibrary,
+    instance::{Instance, InstanceCreateInfo},
+    device::{QueueFlags, Device, DeviceCreateInfo, QueueCreateInfo},
+    memory::allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryUsage},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage},
+    command_buffer::{
+        allocator::{
+            StandardCommandBufferAllocator,
+            StandardCommandBufferAllocatorCreateInfo
+        },
+        AutoCommandBufferBuilder,
+        CommandBufferUsage,
+        CopyBufferInfo
+    },
+    sync::{self, GpuFuture}
+};
 // own imports
+/*
 use common::{Point3, Color, to_pixel};
 use ray::Ray;
 use camera::Camera;
@@ -19,8 +42,9 @@ use materials::{Lambertian, Metal};
 use hit_system::{HittableList, Hittable};
 
 use crate::{materials::Dielectric, common::Vec3};
+*/
 
-
+/*
 /// Get colour of a ray
 fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
     // Exceded ray bounce limit
@@ -101,7 +125,7 @@ fn randon_scene() -> HittableList{
 }
 
 
-fn main() {
+fn old_main() {
     // Image constants
     const ASPECT_RATIO: f32 = 3.0 / 2.0;
     const IMAGE_WIDTH: u32 = 1200;
@@ -142,4 +166,107 @@ fn main() {
     println!("");
     // save image
     img.save("out.png").expect("Faild to save image");
+}
+*/
+
+
+fn main (){
+    // init vulkan
+    let library = VulkanLibrary::new().expect("no local Vulkan library/DLL");
+    let instance = Instance::new(library, InstanceCreateInfo::default()).expect("failed to create instance");
+    // get physical device
+    let physical_device = instance
+        .enumerate_physical_devices()
+        .expect("Could not enumerate devices")
+        .next()
+        .expect("no devices avaiable");
+
+    // find suitable queues
+    let queue_family_index = physical_device
+        .queue_family_properties()
+        .iter()
+        .enumerate()
+        .position(|(_queue_family_index, queue_family_properties)|{
+            queue_family_properties.queue_flags.contains(QueueFlags::GRAPHICS)
+        }).expect("couldn't find a graphical queue family") as u32;
+
+    // get logical device and queues
+    let (device, mut queues) = Device::new(
+        physical_device,
+        DeviceCreateInfo {
+            queue_create_infos: vec![QueueCreateInfo{
+                queue_family_index,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    ).expect("failed to create device");
+
+    // get the queue
+    let queue = queues.next().unwrap();
+    // create a memory allocator
+    let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
+    // create a source buffer
+    let source_content: Vec<i32> = (0..64).collect();
+    let source = Buffer::from_iter(
+        &memory_allocator,
+        BufferCreateInfo{
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo{
+            usage: MemoryUsage::Upload,
+            ..Default::default()
+        },
+        source_content
+    ).expect("failed to create source buffer");
+
+    // create destination buffer
+    let destination_content: Vec<i32> = (0..64).map(|_| 0).collect();
+    let destination = Buffer::from_iter(
+        &memory_allocator,
+        BufferCreateInfo{
+            usage: BufferUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+    AllocationCreateInfo{
+        usage: MemoryUsage::Download,
+        ..Default::default()
+    },
+    destination_content
+    ).expect("failed to create destination buffer");
+
+    // command buffer allocator
+    let command_buffer_allocator = StandardCommandBufferAllocator::new(
+        device.clone(), 
+        StandardCommandBufferAllocatorCreateInfo::default()
+    );
+    
+    // command buffer builder
+    let mut builder = AutoCommandBufferBuilder::primary(
+        &command_buffer_allocator,
+        queue_family_index,
+        CommandBufferUsage::OneTimeSubmit
+    ).unwrap();
+
+    builder
+        .copy_buffer(CopyBufferInfo::buffers(source.clone(), destination.clone()))
+        .unwrap();
+
+    let command_buffer = builder.build().unwrap();
+
+    // submit work
+    let future = sync::now(device.clone())
+        .then_execute(queue.clone(), command_buffer)
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap();
+
+    future.wait(None).unwrap();
+
+    let src_content = source.read().unwrap();
+    let dest_content = destination.read().unwrap();
+    assert_eq!(&*src_content, &*dest_content);
+
+    println!("Everything worked!");
 }
