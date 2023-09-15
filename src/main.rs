@@ -11,9 +11,9 @@ mod hit_system;
 /*
 use std::rc::Rc;
 use rand::Rng;
-use image::{RgbImage, ImageBuffer};
 use cgmath::{InnerSpace, VectorSpace, Deg};
 */
+use image::{Rgba, ImageBuffer};
 // Vulkan inports
 use vulkano::{
     VulkanLibrary,
@@ -28,6 +28,7 @@ use vulkano::{
         },
         AutoCommandBufferBuilder,
         CommandBufferUsage,
+        CopyImageToBufferInfo
     },
     sync::{self, GpuFuture},
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
@@ -35,7 +36,9 @@ use vulkano::{
         allocator::StandardDescriptorSetAllocator,
         PersistentDescriptorSet,
         WriteDescriptorSet
-    }
+    },
+    image::{ImageDimensions, StorageImage, view::ImageView},
+    format::Format
 };
 // own imports
 /*
@@ -180,15 +183,29 @@ mod cs {
         src: r"
             #version 460
 
-            layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+            layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-            layout(set = 0, binding = 0) buffer Data{
-                uint data[];
-            } buf;
+            layout(set = 0, binding = 0, rgba8) uniform writeonly image2D img;
 
             void main(){
-                uint idx = gl_GlobalInvocationID.x;
-                buf.data[idx] *= 12;
+                vec2 norm_coordinates = (gl_GlobalInvocationID.xy + vec2(0.5)) / vec2(imageSize(img));
+                vec2 c = (norm_coordinates - vec2(0.5)) * 2.0 - vec2(1.0, 0.0);
+
+                vec2 z = vec2(0.0, 0.0);
+                float i;
+                for (i=0.0; i<1.0; i+= 0.005){
+                    z = vec2(
+                        z.x * z.x - z.y * z.y + c.x,
+                        z.y * z.x + z.x * z.y + c.y
+                    );
+
+                    if(length(z) > 4.0){
+                        break;
+                    }
+                }
+
+                vec4 to_write = vec4(vec3(i), 1.0);
+                imageStore(img, ivec2(gl_GlobalInvocationID.xy), to_write);
             }
         "
     }
@@ -234,20 +251,32 @@ fn main (){
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
 
     // data buffer
-    let data_iter = 0..65536u32;
-    let data_buffer = Buffer::from_iter(
+    let buf = Buffer::from_iter(
         &memory_allocator,
         BufferCreateInfo{
-            usage: BufferUsage::STORAGE_BUFFER,
+            usage: BufferUsage::TRANSFER_DST,
             ..Default::default()
-
         },
         AllocationCreateInfo{
-            usage: MemoryUsage::Upload,
+            usage: MemoryUsage::Download,
             ..Default::default()
         },
-        data_iter
+        (0..1024 * 1024 * 4).map(|_| 0u8)
     ).expect("failed to create buffer");
+
+    // image
+    let image = StorageImage::new(
+        &memory_allocator,
+        ImageDimensions::Dim2d {
+            width: 1024,
+            height: 1024,
+            array_layers: 1
+        },
+        Format::R8G8B8A8_UNORM,
+        Some(queue.queue_family_index())
+    ).unwrap();
+
+    let view = ImageView::new_default(image.clone()).unwrap();
 
     // create pipeline
     let compute_pipeline = ComputePipeline::new(
@@ -263,14 +292,11 @@ fn main (){
     let pipeline_layout = compute_pipeline.layout();
     let descriptor_set_layouts = pipeline_layout.set_layouts();
 
-    let descriptor_set_layout_index = 0;
-    let descriptor_set_layout = descriptor_set_layouts
-        .get(descriptor_set_layout_index)
-        .unwrap();
+    let descriptor_set_layout = descriptor_set_layouts.get(0).unwrap();
     let descriptor_set = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
         descriptor_set_layout.clone(),
-        [WriteDescriptorSet::buffer(0, data_buffer.clone())]
+        [WriteDescriptorSet::image_view(0, view.clone())]
     ).unwrap();
 
     // command buffer allocator
@@ -286,17 +312,19 @@ fn main (){
         CommandBufferUsage::OneTimeSubmit
     ).unwrap();
 
-    let work_group_counts = [1024, 1, 1];
+    // let work_group_counts = [1024, 1, 1];
 
     builder
         .bind_pipeline_compute(compute_pipeline.clone())
         .bind_descriptor_sets(
             PipelineBindPoint::Compute,
             compute_pipeline.layout().clone(),
-            descriptor_set_layout_index as u32,
+            0,
             descriptor_set
         )
-        .dispatch(work_group_counts)
+        .dispatch([1024 / 8, 1024 / 8, 1])
+        .unwrap()
+        .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(image.clone(), buf.clone()))
         .unwrap();
 
     let command_buffer = builder.build().unwrap();
@@ -310,10 +338,9 @@ fn main (){
 
     future.wait(None).unwrap();
 
-    let content = data_buffer.read().unwrap();
-    for (n,val) in content.iter().enumerate(){
-        assert_eq!(*val, n as u32 * 12);
-    }
+    let buffer_content = buf.read().unwrap();
+    let image = ImageBuffer::<Rgba<u8>,_>::from_raw(1024, 1024, &buffer_content[..]).unwrap();
+    image.save("out.png").unwrap();
 
     println!("Everything worked!");
 }
