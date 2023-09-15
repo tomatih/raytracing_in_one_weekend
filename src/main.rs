@@ -28,9 +28,14 @@ use vulkano::{
         },
         AutoCommandBufferBuilder,
         CommandBufferUsage,
-        CopyBufferInfo
     },
-    sync::{self, GpuFuture}
+    sync::{self, GpuFuture},
+    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator,
+        PersistentDescriptorSet,
+        WriteDescriptorSet
+    }
 };
 // own imports
 /*
@@ -169,6 +174,25 @@ fn old_main() {
 }
 */
 
+mod cs {
+    vulkano_shaders::shader!{
+        ty: "compute",
+        src: r"
+            #version 460
+
+            layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+            layout(set = 0, binding = 0) buffer Data{
+                uint data[];
+            } buf;
+
+            void main(){
+                uint idx = gl_GlobalInvocationID.x;
+                buf.data[idx] *= 12;
+            }
+        "
+    }
+}
 
 fn main (){
     // init vulkan
@@ -202,39 +226,52 @@ fn main (){
         }
     ).expect("failed to create device");
 
+    let shader = cs::load(device.clone()).expect("Failed to load shader module");
+
     // get the queue
     let queue = queues.next().unwrap();
     // create a memory allocator
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
-    // create a source buffer
-    let source_content: Vec<i32> = (0..64).collect();
-    let source = Buffer::from_iter(
+
+    // data buffer
+    let data_iter = 0..65536u32;
+    let data_buffer = Buffer::from_iter(
         &memory_allocator,
         BufferCreateInfo{
-            usage: BufferUsage::TRANSFER_SRC,
+            usage: BufferUsage::STORAGE_BUFFER,
             ..Default::default()
+
         },
         AllocationCreateInfo{
             usage: MemoryUsage::Upload,
             ..Default::default()
         },
-        source_content
-    ).expect("failed to create source buffer");
+        data_iter
+    ).expect("failed to create buffer");
 
-    // create destination buffer
-    let destination_content: Vec<i32> = (0..64).map(|_| 0).collect();
-    let destination = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo{
-            usage: BufferUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-    AllocationCreateInfo{
-        usage: MemoryUsage::Download,
-        ..Default::default()
-    },
-    destination_content
-    ).expect("failed to create destination buffer");
+    // create pipeline
+    let compute_pipeline = ComputePipeline::new(
+        device.clone(),
+        shader.entry_point("main").unwrap(),
+        &(),
+        None,
+        |_| {},
+    ).expect("failed to create compute pipeline");
+
+    // descriptor sets
+    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
+    let pipeline_layout = compute_pipeline.layout();
+    let descriptor_set_layouts = pipeline_layout.set_layouts();
+
+    let descriptor_set_layout_index = 0;
+    let descriptor_set_layout = descriptor_set_layouts
+        .get(descriptor_set_layout_index)
+        .unwrap();
+    let descriptor_set = PersistentDescriptorSet::new(
+        &descriptor_set_allocator,
+        descriptor_set_layout.clone(),
+        [WriteDescriptorSet::buffer(0, data_buffer.clone())]
+    ).unwrap();
 
     // command buffer allocator
     let command_buffer_allocator = StandardCommandBufferAllocator::new(
@@ -245,12 +282,21 @@ fn main (){
     // command buffer builder
     let mut builder = AutoCommandBufferBuilder::primary(
         &command_buffer_allocator,
-        queue_family_index,
+        queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit
     ).unwrap();
 
+    let work_group_counts = [1024, 1, 1];
+
     builder
-        .copy_buffer(CopyBufferInfo::buffers(source.clone(), destination.clone()))
+        .bind_pipeline_compute(compute_pipeline.clone())
+        .bind_descriptor_sets(
+            PipelineBindPoint::Compute,
+            compute_pipeline.layout().clone(),
+            descriptor_set_layout_index as u32,
+            descriptor_set
+        )
+        .dispatch(work_group_counts)
         .unwrap();
 
     let command_buffer = builder.build().unwrap();
@@ -264,9 +310,10 @@ fn main (){
 
     future.wait(None).unwrap();
 
-    let src_content = source.read().unwrap();
-    let dest_content = destination.read().unwrap();
-    assert_eq!(&*src_content, &*dest_content);
+    let content = data_buffer.read().unwrap();
+    for (n,val) in content.iter().enumerate(){
+        assert_eq!(*val, n as u32 * 12);
+    }
 
     println!("Everything worked!");
 }
