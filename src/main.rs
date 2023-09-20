@@ -253,6 +253,8 @@ fn get_logical_device(physical_device: Arc<PhysicalDevice>) -> (Arc<Device>, Arc
 }
 
 fn main (){
+    // image data
+    let image_size = 1024 * 30;
     // init vulkan
     let instance = get_vulkan_instance();
     let physical_device = get_physical_device(instance);
@@ -275,15 +277,15 @@ fn main (){
             usage: MemoryUsage::Download,
             ..Default::default()
         },
-        (0..1024 * 1024 * 4).map(|_| 0u8)
+        (0..image_size * image_size * 4).map(|_| 0u8)
     ).expect("failed to create buffer");
 
     // image
     let image = StorageImage::new(
         &memory_allocator,
         ImageDimensions::Dim2d {
-            width: 1024,
-            height: 1024,
+            width: image_size,
+            height: image_size,
             array_layers: 1
         },
         Format::R8G8B8A8_UNORM,
@@ -334,7 +336,7 @@ fn main (){
             0,
             descriptor_set
         )
-        .dispatch([1024 / 8, 1024 / 8, 1])
+        .dispatch([image_size / 8, image_size / 8, 1])
         .unwrap()
         .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(image.clone(), buf.clone()))
         .unwrap();
@@ -351,7 +353,7 @@ fn main (){
     future.wait(None).unwrap();
 
     let buffer_content = buf.read().unwrap();
-    let image = ImageBuffer::<Rgba<u8>,_>::from_raw(1024, 1024, &buffer_content[..]).unwrap();
+    let image = ImageBuffer::<Rgba<u8>,_>::from_raw(image_size, image_size, &buffer_content[..]).unwrap();
     image.save("out.png").unwrap();
 
     println!("Everything worked!");
