@@ -33,11 +33,13 @@ use vulkano::{
 use crate::vulkan_helper::{get_vulkan_instance, get_physical_device, get_logical_device};
 
 fn main (){
+    println!("Starting the renderer");
     // image data
     let image_size = 1024;
     // init vulkan
     let instance = get_vulkan_instance();
     let physical_device = get_physical_device(instance);
+    println!("Chosen {}", physical_device.properties().device_name);
     let (device, queue) = get_logical_device(physical_device);
 
     // load shader
@@ -132,6 +134,7 @@ fn main (){
 
     future.wait(None).unwrap();
 
+    // save image on disk
     let buffer_content = buf.read().unwrap();
     let image = ImageBuffer::<Rgba<u8>,_>::from_raw(image_size, image_size, &buffer_content[..]).unwrap();
     image.save("out.png").unwrap();
