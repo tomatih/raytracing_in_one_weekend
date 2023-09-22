@@ -35,7 +35,11 @@ use crate::vulkan_helper::{get_vulkan_instance, get_physical_device, get_logical
 fn main (){
     println!("Starting the renderer");
     // image data
-    let image_size = 1024;
+    const IMAGE_WIDTH: u32 = 256;
+    const IMAGE_HEIGHT: u32 = 256;
+
+
+
     // init vulkan
     let instance = get_vulkan_instance();
     let physical_device = get_physical_device(instance);
@@ -59,15 +63,15 @@ fn main (){
             usage: MemoryUsage::Download,
             ..Default::default()
         },
-        (0..image_size * image_size * 4).map(|_| 0u8)
+        (0..IMAGE_WIDTH * IMAGE_HEIGHT).map(|_| 0u8)
     ).expect("failed to create buffer");
 
     // image
-    let image = StorageImage::new(
+    let output_image = StorageImage::new(
         &memory_allocator,
         ImageDimensions::Dim2d {
-            width: image_size,
-            height: image_size,
+            width: IMAGE_WIDTH,
+            height: IMAGE_HEIGHT,
             array_layers: 1
         },
         Format::R8G8B8A8_UNORM,
@@ -118,9 +122,9 @@ fn main (){
             0,
             descriptor_set
         )
-        .dispatch([image_size / 8, image_size / 8, 1])
+        .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
         .unwrap()
-        .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(image.clone(), buf.clone()))
+        .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(output_image.clone(), output_buff.clone()))
         .unwrap();
 
     let command_buffer = builder.build().unwrap();
@@ -135,8 +139,8 @@ fn main (){
     future.wait(None).unwrap();
 
     // save image on disk
-    let buffer_content = buf.read().unwrap();
-    let image = ImageBuffer::<Rgba<u8>,_>::from_raw(image_size, image_size, &buffer_content[..]).unwrap();
+    let buffer_content = output_buff.read().unwrap();
+    let image = ImageBuffer::<Rgba<u8>,_>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..]).unwrap();
     image.save("out.png").unwrap();
 
     println!("Everything worked!");

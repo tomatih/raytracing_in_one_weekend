@@ -1,4 +1,4 @@
 vulkano_shaders::shader!{
     ty: "compute",
-    path: "shaders/mandlebrot.comp"
+    path: "shaders/ray_trace.comp"
 }
