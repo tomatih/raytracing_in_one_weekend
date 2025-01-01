@@ -8,7 +8,7 @@ use image::{Rgba, ImageBuffer};
 // Vulkan inports
 use vulkano::{
     memory::allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryUsage},
-    buffer::{Buffer, BufferCreateInfo, BufferUsage},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, BufferContents},
     command_buffer::{
         allocator::{
             StandardCommandBufferAllocator,
@@ -32,6 +32,13 @@ use vulkano::{
 // own imports
 use crate::vulkan_helper::{get_vulkan_instance, get_physical_device, get_logical_device};
 
+#[derive(BufferContents)]
+#[repr(C)]
+struct Ray{
+    origin: [f32; 3],
+    direction: [f32; 3]
+}
+
 fn main (){
     println!("Starting the renderer");
     // image data
@@ -52,18 +59,18 @@ fn main (){
     // create a memory allocator
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
 
-    // data buffer
-    let buf = Buffer::from_iter(
+    // ray buffer
+    let ray_buff = Buffer::from_iter(
         &memory_allocator,
         BufferCreateInfo{
-            usage: BufferUsage::TRANSFER_DST,
+            usage: BufferUsage::STORAGE_BUFFER,
             ..Default::default()
         },
         AllocationCreateInfo{
-            usage: MemoryUsage::Download,
+            usage: MemoryUsage::Upload,
             ..Default::default()
         },
-        (0..IMAGE_WIDTH * IMAGE_HEIGHT).map(|_| 0u8)
+        (0..IMAGE_WIDTH * IMAGE_HEIGHT).map(|_| Ray{ origin: [0.0, 0.0, 0.0], direction: [0.0, 0.0, 0.0]})
     ).expect("failed to create buffer");
 
     // image
@@ -78,7 +85,21 @@ fn main (){
         Some(queue.queue_family_index())
     ).unwrap();
 
-    let view = ImageView::new_default(image.clone()).unwrap();
+    // data buffer
+    let output_buff = Buffer::from_iter(
+        &memory_allocator,
+        BufferCreateInfo{
+            usage: BufferUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo{
+            usage: MemoryUsage::Download,
+            ..Default::default()
+        },
+        (0..IMAGE_WIDTH * IMAGE_HEIGHT * 4).map(|_| 0u8)
+    ).expect("failed to create buffer");
+
+    let view = ImageView::new_default(output_image.clone()).unwrap();
 
     // create pipeline
     let compute_pipeline = ComputePipeline::new(
