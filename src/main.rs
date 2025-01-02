@@ -134,6 +134,8 @@ fn main() {
     )
     .unwrap();
 
+    //TODO: multiple dispatches (1 per sample)
+    //TODO: extra shader to do final color mapping
     builder
         .bind_pipeline_compute(compute_pipeline.clone())
         .bind_descriptor_sets(
