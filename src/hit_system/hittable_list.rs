@@ -3,8 +3,8 @@ use crate::materials::Material;
 use super::{HitRecord, Hittable};
 
 pub struct HittableList {
-    objects: Vec<Box<dyn Hittable>>,
-    materials: Vec<Box<dyn Material>>,
+    objects: Vec<Box<dyn Hittable + Sync>>,
+    materials: Vec<Box<dyn Material + Sync>>,
 }
 
 impl HittableList {
@@ -20,11 +20,11 @@ impl HittableList {
         self.materials.clear()
     }
 
-    pub fn add_object(&mut self, object: Box<dyn Hittable>) {
+    pub fn add_object(&mut self, object: Box<dyn Hittable + Sync>) {
         self.objects.push(object);
     }
 
-    pub fn add_material(&mut self, material: Box<dyn Material>) {
+    pub fn add_material(&mut self, material: Box<dyn Material + Sync>) {
         self.materials.push(material);
     }
 
@@ -32,7 +32,7 @@ impl HittableList {
         self.materials.len() - 1
     }
 
-    pub fn get_material(&self, index: usize) -> &Box<dyn Material> {
+    pub fn get_material(&self, index: usize) -> &Box<dyn Material + Sync> {
         &self.materials[index]
     }
 }

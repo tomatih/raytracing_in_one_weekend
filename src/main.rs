@@ -9,7 +9,7 @@ mod ray;
 use cgmath::{Deg, InnerSpace, VectorSpace};
 use image::{ImageBuffer, RgbImage};
 use rand::Rng;
-use std::rc::Rc;
+use rayon::prelude::*;
 // own imports
 use camera::Camera;
 use common::{to_pixel, Color, Point3};
@@ -21,9 +21,9 @@ use ray::Ray;
 use crate::{common::Vec3, materials::Dielectric};
 
 /// Get colour of a ray
-fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
+fn ray_color(ray: &Ray, world: &HittableList, depth: i32) -> Color {
     let mut output_color = Color::new(1.0, 1.0, 1.0);
-    let mut current_ray = ray;
+    let mut current_ray = *ray;
 
     for _ in 0..depth {
         if let Some(hit_record) = world.hit(&current_ray, 0.001, f32::INFINITY) {
@@ -143,8 +143,8 @@ fn main() {
     const ASPECT_RATIO: f32 = 3.0 / 2.0;
     const IMAGE_WIDTH: u32 = 1200;
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
-    const SAMPLES_PER_PIXEL: i32 = 5;
-    const MAX_DEPTH: i32 = 5;
+    const SAMPLES_PER_PIXEL: i32 = 500;
+    const MAX_DEPTH: i32 = 50;
 
     // World
     let world = randon_scene();
@@ -173,13 +173,15 @@ fn main() {
     for j in (0..IMAGE_HEIGHT).rev() {
         print!("\rScanlines remaining {:3}", j);
         for i in 0..IMAGE_WIDTH {
-            let mut pixel_color = Color::new(0.0, 0.0, 0.0);
-            for _ in 0..SAMPLES_PER_PIXEL {
+            let rays: Vec<Ray> = (0..SAMPLES_PER_PIXEL).into_iter().map(|_|{
                 let u = (i as f32 + rng.gen::<f32>()) / (IMAGE_WIDTH - 1) as f32;
                 let v = (j as f32 + rng.gen::<f32>()) / (IMAGE_HEIGHT - 1) as f32;
-                let ray = camera.get_ray(u, v);
-                pixel_color += ray_color(ray, &world, MAX_DEPTH);
-            }
+                camera.get_ray(u, v)
+            }).collect();
+
+            let pixel_color: Color = rays.par_iter().map(|ray|{
+                ray_color(ray, &world, MAX_DEPTH)
+            }).sum();
             // print pixel
             img.put_pixel(
                 i,

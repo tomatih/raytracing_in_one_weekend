@@ -1,6 +1,7 @@
 use crate::common::{Point3, Vec3};
 
 /// Simulated ray of light
+#[derive(Clone, Copy)]
 pub struct Ray{
     pub origin: Point3,
     pub direction: Vec3
