@@ -1,5 +1,4 @@
 use cgmath::InnerSpace;
-use std::rc::Rc;
 
 use crate::{
     common::Point3,

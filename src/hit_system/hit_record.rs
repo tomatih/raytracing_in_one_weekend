@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use cgmath::InnerSpace;
 
 use crate::{
