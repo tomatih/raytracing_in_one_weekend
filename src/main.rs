@@ -16,40 +16,74 @@ use ray::Ray;
 use camera::Camera;
 use objects::Sphere;
 use materials::{Lambertian, Metal};
-use hit_system::{HittableList, Hittable};
+use hit_system::{HitRecord, Hittable, HittableList};
 
 use crate::{materials::Dielectric, common::Vec3};
 
 
 /// Get colour of a ray
 fn ray_color(ray: Ray, world: &HittableList, depth: i32) -> Color {
-    // Exceded ray bounce limit
-    if depth <= 0 {
-        return Color::new(0.0, 0.0, 0.0);
-    }
-    // check if ray hit any objects
-    if let Some(hit_record) =  world.hit(&ray, 0.001, f32::INFINITY){
-        // if the ray scatters further
-        if let Some((attenuation, scattered)) = hit_record.mat_ptr.scatter(ray, &hit_record){
-            // bounce new ray
-            let result =  ray_color(scattered, world, depth-1);
-            Color::new(
-                result.x * attenuation.x,
-                result.y * attenuation.y,
-                result.z * attenuation.z
-            )
+
+    let mut output_color = Color::new(1.0, 1.0, 1.0);
+    let mut current_ray = ray;
+
+    for _ in 0..depth{
+        let new_color = if let Some(hit_record) =  world.hit(&current_ray, 0.001, f32::INFINITY){
+            if let Some((attenuation, scattered)) = hit_record.mat_ptr.scatter(current_ray, &hit_record){
+                // bounce new ray
+                current_ray = scattered;
+                attenuation
+            }
+            else{
+                current_ray = Ray{
+                    origin: Vec3::new(0.0, 0.0, 0.0),
+                    direction: Vec3::new(0.0, 0.0, 0.0)
+                };
+                Color::new(0.0, 0.0, 0.0)
+            }
         }
-        // ray got absorbed
         else{
-            Color::new(0.0, 0.0, 0.0)
-        }
+            let unit_direction = current_ray.direction.normalize();
+            let t = 0.5*(unit_direction.y + 1.0);
+            Color::new(1.0, 1.0, 1.0).lerp(Color::new(0.5, 0.7, 1.0), t)
+        };
+
+        output_color = Color::new(
+            output_color.x * new_color.x,
+            output_color.y * new_color.y,
+            output_color.z * new_color.z
+        )
     }
-    // if not return a sky gradient
-    else{
-        let unit_direction = ray.direction.normalize();
-        let t = 0.5*(unit_direction.y + 1.0);
-        Color::new(1.0, 1.0, 1.0).lerp(Color::new(0.5, 0.7, 1.0), t)
-    }
+
+    output_color
+
+//    // Exceded ray bounce limit
+//    if depth <= 0 {
+//        return Color::new(0.0, 0.0, 0.0);
+//    }
+//    // check if ray hit any objects
+//    if let Some(hit_record) =  world.hit(&ray, 0.001, f32::INFINITY){
+//        // if the ray scatters further
+//        if let Some((attenuation, scattered)) = hit_record.mat_ptr.scatter(ray, &hit_record){
+//            // bounce new ray
+//            let result =  ray_color(scattered, world, depth-1);
+//            Color::new(
+//                result.x * attenuation.x,
+//                result.y * attenuation.y,
+//                result.z * attenuation.z
+//            )
+//        }
+//        // ray got absorbed
+//        else{
+//            Color::new(0.0, 0.0, 0.0)
+//        }
+//    }
+//    // if not return a sky gradient
+//    else{
+//        let unit_direction = ray.direction.normalize();
+//        let t = 0.5*(unit_direction.y + 1.0);
+//        Color::new(1.0, 1.0, 1.0).lerp(Color::new(0.5, 0.7, 1.0), t)
+//    }
 }
 
 /// Generate a scene fileld with random spheres
@@ -106,8 +140,8 @@ fn main() {
     const ASPECT_RATIO: f32 = 3.0 / 2.0;
     const IMAGE_WIDTH: u32 = 1200;
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 /ASPECT_RATIO) as u32;
-    const SAMPLES_PER_PIXEL: i32 = 500;
-    const MAX_DEPTH: i32 = 50;
+    const SAMPLES_PER_PIXEL: i32 = 5;
+    const MAX_DEPTH: i32 = 5;
 
     // World
     let world = randon_scene();
