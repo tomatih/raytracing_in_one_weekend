@@ -1,5 +1,5 @@
-use crate::common::{Point3, Vec3};
-use crate::compute_shader;
+use crate::common::{Point3, Vec3, random_in_unit_sphere};
+use crate::ray::Ray;
 use cgmath::{Angle, InnerSpace};
 
 pub struct Camera {
@@ -41,26 +41,13 @@ impl Camera {
         }
     }
 
-    pub fn to_push_constant(self) -> compute_shader::PushConstantData {
-        compute_shader::PushConstantData{
-            origin: Into::<[f32;3]>::into(self.origin).into(),
-            lower_left_corner: Into::<[f32;3]>::into(self.lower_left_corner).into(),
-            horizontal: Into::<[f32;3]>::into(self.horizontal).into(),
-            vertical: Into::<[f32;3]>::into(self.vertical).into(),
-            u: Into::<[f32;3]>::into(self.u).into(),
-            v: Into::<[f32;3]>::into(self.v).into(),
-            w: Into::<[f32;3]>::into(self.w).into(),
-            lens_radius: self.lens_radius,
+    pub fn get_ray(&self, s: f32, t:f32) -> Ray{
+        let rd = self.lens_radius * random_in_unit_sphere();
+        let offset = self.u * rd.x + self.v * rd.y;
+    
+        Ray {
+            origin: self.origin + offset,
+            direction: self.lower_left_corner +s*self.horizontal + t*self.vertical - self.origin - offset
         }
     }
-
-    // pub fn get_ray(&self, s: f32, t:f32) -> Ray{
-    //     let rd = self.lens_radius * random_in_unit_sphere();
-    //     let offset = self.u * rd.x + self.v * rd.y;
-    //
-    //     Ray {
-    //         origin: self.origin + offset,
-    //         direction: self.lower_left_corner +s*self.horizontal + t*self.vertical - self.origin - offset
-    //     }
-    // }
 }

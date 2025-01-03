@@ -1,16 +1,21 @@
+#![allow(dead_code, unused_variables, unused_mut)]
+
 // project modules
 mod camera;
 mod common;
 mod compute_shader;
 mod vulkan_helper;
+mod ray;
 
 use cgmath::Deg;
 // external imports
 use image::{ImageBuffer, Rgba};
+use rand::{rngs::ThreadRng, Rng};
+use itertools::iproduct;
 
 // Vulkan inports
 use vulkano::{
-    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
         AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo,
@@ -29,15 +34,26 @@ use crate::camera::Camera;
 use crate::common::{Point3, Vec3};
 use crate::vulkan_helper::{get_logical_device, get_physical_device, get_vulkan_instance};
 
+fn generate_rays(width: u32, height: u32,camera: &Camera, rng: &mut ThreadRng) -> Vec<compute_shader::Ray> {
+    iproduct!((0..height).rev(), 0..width).map(|(x, y)|{
+        let u = (y as f32 + rng.gen::<f32>()) / (width - 1) as f32;
+        let v = (x as f32 + rng.gen::<f32>()) / (height - 1) as f32;
+        camera.get_ray(u, v).into()
+    }).collect()
+}
+
 fn main() {
     println!("Starting the renderer");
     // image data
     const ASPECT_RATIO: f32 = 16.0 / 9.0;
     const IMAGE_WIDTH: u32 = 400;
+    assert!(IMAGE_WIDTH%8 == 0); // needed for shader
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
+    // const SAMPLES_PER_PIXEL: i32 = 500;
 
     // camera
-    let look_from = Point3::new(13.0, 2.0, 3.0);
+    // let look_from = Point3::new(13.0, 2.0, 3.0);
+    let look_from = Point3::new(10.0, 0.0, 0.0);
     let look_at = Point3::new(0.0, 0.0, 0.0);
     let up = Vec3::unit_y();
     let distance_to_focus = 10.0;
@@ -52,6 +68,10 @@ fn main() {
         distance_to_focus,
     );
 
+    // generate initial rays
+    let mut rng = rand::thread_rng();
+    let mut rays_cpu = generate_rays(IMAGE_WIDTH, IMAGE_HEIGHT, &camera, &mut rng);
+
     // init vulkan
     let instance = get_vulkan_instance();
     let physical_device = get_physical_device(instance);
@@ -64,10 +84,7 @@ fn main() {
     // create a memory allocator
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
 
-    // camera push constant
-    let push_constant = camera.to_push_constant();
-
-    // image
+    // output image
     let output_image = StorageImage::new(
         &memory_allocator,
         ImageDimensions::Dim2d {
@@ -80,7 +97,7 @@ fn main() {
     )
     .unwrap();
 
-    // data buffer
+    // output data buffer
     let output_buff = Buffer::from_iter(
         &memory_allocator,
         BufferCreateInfo {
@@ -94,8 +111,22 @@ fn main() {
         (0..IMAGE_WIDTH * IMAGE_HEIGHT * 4).map(|_| 0u8),
     )
     .expect("failed to create buffer");
-
     let view = ImageView::new_default(output_image.clone()).unwrap();
+
+
+    // Ray buffer
+    let ray_buffer = Buffer::from_iter(
+        &memory_allocator, 
+        BufferCreateInfo{
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        }, 
+        AllocationCreateInfo{
+            usage: MemoryUsage::Upload,
+            ..Default::default()
+        }, 
+        rays_cpu.into_iter()
+    ).unwrap();
 
     // create pipeline
     let compute_pipeline = ComputePipeline::new(
@@ -116,7 +147,10 @@ fn main() {
     let descriptor_set = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
         descriptor_set_layout.clone(),
-        [WriteDescriptorSet::image_view(0, view.clone())],
+        [
+            WriteDescriptorSet::image_view(0, view.clone()),
+            WriteDescriptorSet::buffer(1, ray_buffer.clone())
+        ],
     )
     .unwrap();
 
@@ -144,7 +178,6 @@ fn main() {
             0,
             descriptor_set,
         )
-        .push_constants(pipeline_layout.clone(), 0, push_constant)
         .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
         .unwrap()
         .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
