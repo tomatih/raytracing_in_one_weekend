@@ -1,13 +1,23 @@
-use std::rc::Rc;
 use cgmath::InnerSpace;
 
-use crate::{common::Point3, ray::Ray, materials::Material, hit_system::{HitRecord, Hittable}};
+use crate::{common::Point3, ray::Ray, hit_system::{HitRecord, Hittable}};
 
 /// A sphere object
 pub struct Sphere{
     pub center: Point3,
     pub radius: f32,
-    pub material: Rc<dyn Material>
+    pub material: usize
+}
+
+impl Into<crate::compute_shader::Sphere> for Sphere{
+    fn into(self) -> crate::compute_shader::Sphere {
+        crate::compute_shader::Sphere{
+            center: self.center.into(),
+            radius: self.radius,
+            material_index: self.material as u32,
+            padding: [0.0, 0.0, 0.0],
+        }
+    }
 }
 
 impl Hittable for Sphere {
@@ -36,6 +46,6 @@ impl Hittable for Sphere {
 
         // return hit record
         let outward_normal = (r.at(root) - self.center) / self.radius;
-        Some(HitRecord::new(r.at(root), root, Rc::clone(&self.material), r, outward_normal))
+        Some(HitRecord::new(r.at(root), root, self.material, r, outward_normal))
     }
 }

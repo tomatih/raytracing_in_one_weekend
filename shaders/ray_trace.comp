@@ -18,18 +18,18 @@ layout (std140, set = 0, binding = 1) readonly buffer RaysIn {
 struct Sphere{
     vec3 center;
     float radius;
-    vec3 color;
+    vec3 padding;
+    uint material_index;
 };
 
-struct HitRecord{
-    vec3 p;
-    vec3 normal;
-    float t;
-    uint mat_index;
-    bool front_face;
+layout(std140,set = 0, binding = 2) readonly buffer SpheresIn {
+    Sphere spheres[];
 };
 
-// #define BOUNCE_AMOUNT 1
+layout(push_constant) uniform PushConstantData{
+    uint sphere_amount;
+} limits;
+
 
 bool check_hit(Ray ray, float t_min, float t_max, Sphere sphere) {
     // quadratic setup
@@ -59,25 +59,21 @@ bool check_hit(Ray ray, float t_min, float t_max, Sphere sphere) {
 }
 
 
-bool get_closest_hit(Ray ray, float t_min, float t_max, out vec3 color){
+bool get_closest_hit(Ray ray, float t_min, float t_max){
     bool hit_anything = false;
     float closest_so_far = t_max;
 
-    // Dummy sphere 
-    Sphere sphere1 = {vec3(0.0, 0.0, 0.0), 0.5, vec3(0.0, 1.0, 0.0)};
-    Sphere sphere2 = {vec3(0.0, 0.0, 1.0), 0.5, vec3(1.0, 0.0, 0.0)};
-    Sphere spheres[] = {sphere1, sphere2};
-
-
-    for(uint i=0; i<2; i++){
+    for(uint i=0; i<limits.sphere_amount; i++){
         if(check_hit(ray, t_min, closest_so_far, spheres[i])){
             hit_anything = true;
-            color = spheres[i].color;
         } 
     }
 
     return hit_anything;
 }
+
+
+// #define BOUNCE_AMOUNT 1
 
 void main() {
 
@@ -92,7 +88,7 @@ void main() {
 
     // bounces
     // for (int bounce = 0; bounce < BOUNCE_AMOUNT; bounce++) {
-        if (get_closest_hit(ray, 0.001, 1. / 0., pixel_color)) {
+        if (get_closest_hit(ray, 0.001, 1. / 0.)) {
 
         }
         else {

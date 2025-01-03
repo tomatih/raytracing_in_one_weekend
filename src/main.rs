@@ -6,6 +6,9 @@ mod common;
 mod compute_shader;
 mod vulkan_helper;
 mod ray;
+mod objects;
+mod hit_system;
+mod materials;
 
 use cgmath::Deg;
 // external imports
@@ -31,6 +34,7 @@ use vulkano::{
 };
 // own imports
 use crate::camera::Camera;
+use crate::objects::Sphere;
 use crate::common::{Point3, Vec3};
 use crate::vulkan_helper::{get_logical_device, get_physical_device, get_vulkan_instance};
 
@@ -71,6 +75,18 @@ fn main() {
     // generate initial rays
     let mut rng = rand::thread_rng();
     let mut rays_cpu = generate_rays(IMAGE_WIDTH, IMAGE_HEIGHT, &camera, &mut rng);
+
+
+    // make the world
+    let spheres: Vec<compute_shader::Sphere> = vec![
+        Sphere{ center : [0.0, 0.0, 1.0].into(), radius: 0.5, material: 0 }.into(),
+        Sphere{ center : [0.0, 0.0, -1.0].into(), radius: 0.25, material: 0 }.into(),
+        Sphere{ center : [0.0, 0.0, 0.0].into(), radius: 0.5, material: 0 }.into(),
+    ];
+
+    let limits = compute_shader::PushConstantData{
+        sphere_amount: spheres.len() as u32
+    };
 
     // init vulkan
     let instance = get_vulkan_instance();
@@ -128,6 +144,20 @@ fn main() {
         rays_cpu.into_iter()
     ).unwrap();
 
+    // Sphere buffer
+    let sphere_buffer = Buffer::from_iter(
+        &memory_allocator,
+        BufferCreateInfo{
+            usage: BufferUsage::STORAGE_BUFFER, 
+            ..Default::default()
+        },
+        AllocationCreateInfo{
+            usage: MemoryUsage::Upload,
+            ..Default::default()
+        }, 
+        spheres.into_iter()
+    ).unwrap();
+
     // create pipeline
     let compute_pipeline = ComputePipeline::new(
         device.clone(),
@@ -149,7 +179,8 @@ fn main() {
         descriptor_set_layout.clone(),
         [
             WriteDescriptorSet::image_view(0, view.clone()),
-            WriteDescriptorSet::buffer(1, ray_buffer.clone())
+            WriteDescriptorSet::buffer(1, ray_buffer.clone()),
+            WriteDescriptorSet::buffer(2, sphere_buffer.clone()),
         ],
     )
     .unwrap();
@@ -178,6 +209,7 @@ fn main() {
             0,
             descriptor_set,
         )
+        .push_constants(compute_pipeline.layout().clone(), 0, limits)
         .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
         .unwrap()
         .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
