@@ -80,21 +80,15 @@ fn main() {
 
     // make the world
     let materials: Vec<[f32;4]> = vec![
-        // Material::Lambertian { albedo: [1.0, 0.0, 0.0].into() }.into(),
-        // Material::Lambertian { albedo: [0.0, 1.0, 0.0].into() }.into(),
-        // Material::Lambertian { albedo: [0.0, 0.0, 1.0].into() }.into(),
-        // Material::Dielectric { ir: 1.5 }.into(),
-        // Material::Dielectric { ir: 1.5 }.into(),
-        // Material::Dielectric { ir: 1.5 }.into(),
-        Material::Metal { albedo: [1.0, 0.0, 0.0].into(), fuzziness: 0.0 }.into(),
-        Material::Metal { albedo: [0.0, 1.0, 0.0].into(), fuzziness: 0.5 }.into(),
+        Material::Lambertian { albedo: [1.0, 0.0, 0.0].into() }.into(),
+        Material::Dielectric { ir: 1.5 }.into(),
         Material::Metal { albedo: [0.0, 0.0, 1.0].into(), fuzziness: 1.0 }.into(),
     ];
 
     let spheres: Vec<compute_shader::Sphere> = vec![
-        Sphere{ center : [0.0, 0.0, 1.2].into(), radius: 0.5, material: 0 }.into(),
-        Sphere{ center : [0.0, 0.0, -1.2].into(), radius: 0.5, material: 1 }.into(),
-        Sphere{ center : [0.0, 0.0, 0.0].into(), radius: 0.5, material: 2 }.into(),
+        Sphere::new([0.0, 0.0, 1.2].into(), 0.5, 0, 0).into(),
+        Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 1, 1).into(),
+        Sphere::new([0.0, 0.0, 0.0].into(), 0.5, 2, 2 ).into(),
     ];
 
     let limits = compute_shader::PushConstantData{

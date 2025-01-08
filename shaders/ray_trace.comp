@@ -18,8 +18,9 @@ layout (std140, set = 0, binding = 1) readonly buffer RaysIn {
 struct Sphere{
     vec3 center;
     float radius;
-    vec3 padding;
+    vec2 padding;
     uint material_index;
+    uint material_type;
 };
 
 layout(std140, set = 0, binding = 2) readonly buffer SpheresIn {
@@ -41,6 +42,7 @@ struct HitRecord{
     float t;
     vec3 normal;
     uint mat_index;
+    uint mat_type;
     bool front_face;
 };
 
@@ -181,6 +183,7 @@ bool check_hit(Ray ray, float t_min, float t_max, Sphere sphere, out HitRecord h
     hit.p = ray_at(ray, root);
     hit.t = root;
     hit.mat_index = sphere.material_index;
+    hit.mat_type = sphere.material_type;
     vec3 outward_normal = (hit.p - sphere.center) / sphere.radius;
     hit.front_face = dot(ray.direction, outward_normal) < 0.0;
     hit.normal = outward_normal * -int(hit.front_face);
@@ -255,7 +258,7 @@ bool metal(HitRecord hit_record, inout Ray ray, out vec3 color){
 
 // -----------------------------------------------------------------------------------
 
-#define BOUNCE_AMOUNT 1
+#define BOUNCE_AMOUNT 5
 
 void main() {
 
@@ -276,7 +279,24 @@ void main() {
         // test hit
         if (get_closest_hit(ray, 0.001, 1. / 0., hit_record)) {
             vec3 tmp_color;
-            if(!metal(hit_record, ray, tmp_color)){
+            bool absorbed = false;
+            switch(hit_record.mat_type){
+                case 0:
+                    absorbed = !lambertian(hit_record, ray, tmp_color);
+                    break;
+                case 1:
+                    absorbed = !dielectric(hit_record, ray, tmp_color);
+                    break;
+                case 2:
+                    absorbed = !metal(hit_record, ray, tmp_color);
+                    break;
+                case 3:
+                    absorbed = true;
+                    break;
+                default:
+                    break;
+            }
+            if(absorbed){
                 pixel_color = vec3(0.0);
                 break;
             }

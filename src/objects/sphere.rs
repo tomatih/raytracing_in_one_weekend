@@ -1,12 +1,24 @@
 use cgmath::InnerSpace;
 
-use crate::{common::Point3, ray::Ray, hit_system::{HitRecord, Hittable}};
+use crate::{common::Point3, hit_system::{HitRecord, Hittable}, ray::Ray};
 
 /// A sphere object
 pub struct Sphere{
     pub center: Point3,
     pub radius: f32,
-    pub material: usize
+    pub material: usize,
+    pub material_type: u32,
+}
+
+impl Sphere{
+    pub fn new(center: Point3, radius: f32, material: usize, material_type:u32) -> Self{
+        Self{
+            center,
+            radius,
+            material,
+            material_type
+        }
+    }
 }
 
 impl Into<crate::compute_shader::Sphere> for Sphere{
@@ -15,7 +27,8 @@ impl Into<crate::compute_shader::Sphere> for Sphere{
             center: self.center.into(),
             radius: self.radius,
             material_index: self.material as u32,
-            padding: [0.0, 0.0, 0.0],
+            material_type: self.material_type,
+            padding: [0.0, 0.0],
         }
     }
 }
