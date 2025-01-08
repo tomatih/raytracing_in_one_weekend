@@ -2,7 +2,8 @@
 
 // project modules
 mod common;
-mod compute_shader;
+mod ray_trace_shader;
+mod finalize_shader;
 mod vulkan_helper;
 mod objects;
 mod materials;
@@ -63,7 +64,7 @@ fn main() {
         Material::Metal { albedo: [0.0, 0.0, 1.0].into(), fuzziness: 1.0 }.into(),
     ];
 
-    let spheres: Vec<compute_shader::Sphere> = vec![
+    let spheres: Vec<ray_trace_shader::Sphere> = vec![
         Sphere::new([0.0, 0.0, 1.2].into(), 0.5, 0, 0).into(),
         Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 1, 1).into(),
         Sphere::new([0.0, 0.0, 0.0].into(), 0.5, 2, 2 ).into(),
@@ -76,8 +77,10 @@ fn main() {
     println!("Chosen {}", physical_device.properties().device_name);
     let (device, queue) = get_logical_device(physical_device);
 
-    // load shader
-    let shader = compute_shader::load(device.clone()).expect("Failed to load shader module");
+    // load shaders
+    let main_shader = ray_trace_shader::load(device.clone()).expect("Failed to load main shader module");
+    let final_shader = finalize_shader::load(device.clone()).expect("Failed to load final shader module");
+
 
     // create a memory allocator
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
@@ -151,10 +154,19 @@ fn main() {
         materials.into_iter()
     ).unwrap();
 
-    // create pipeline
-    let compute_pipeline = ComputePipeline::new(
+    // create pipelines
+    let main_pipeline = ComputePipeline::new(
         device.clone(),
-        shader.entry_point("main").unwrap(),
+        main_shader.entry_point("main").unwrap(),
+        &(),
+        None,
+        |_| {},
+    )
+    .expect("failed to create compute pipeline");
+
+    let final_pipeline = ComputePipeline::new(
+        device.clone(),
+        final_shader.entry_point("main").unwrap(),
         &(),
         None,
         |_| {},
@@ -163,13 +175,13 @@ fn main() {
 
     // descriptor sets
     let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
-    let pipeline_layout = compute_pipeline.layout();
-    let descriptor_set_layouts = pipeline_layout.set_layouts();
+    let main_pipeline_layout = main_pipeline.layout();
+    let main_descriptor_set_layouts = main_pipeline_layout.set_layouts();
+    let main_descriptor_set_layout = main_descriptor_set_layouts.get(0).unwrap();
 
-    let descriptor_set_layout = descriptor_set_layouts.get(0).unwrap();
     let descriptor_set_1 = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
-        descriptor_set_layout.clone(),
+        main_descriptor_set_layout.clone(),
         [
             WriteDescriptorSet::image_view(0, view_1.clone()),
             WriteDescriptorSet::image_view(1, view_2.clone()),
@@ -180,7 +192,7 @@ fn main() {
     .unwrap();
     let descriptor_set_2 = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
-        descriptor_set_layout.clone(),
+        main_descriptor_set_layout.clone(),
         [
             WriteDescriptorSet::image_view(0, view_2.clone()),
             WriteDescriptorSet::image_view(1, view_1.clone()),
@@ -189,6 +201,22 @@ fn main() {
         ],
     )
     .unwrap();
+
+
+    let final_pipeline_layout = final_pipeline.layout();
+    let final_descriptor_set_layouts = final_pipeline_layout.set_layouts();
+    let final_descriptor_set_layout = final_descriptor_set_layouts.get(0).unwrap();
+
+    let final_descriptor_set = PersistentDescriptorSet::new(
+        &descriptor_set_allocator,
+        final_descriptor_set_layout.clone(),
+        [
+            WriteDescriptorSet::image_view((SAMPLES_PER_PIXEL%2) as u32 , view_1.clone()),
+            WriteDescriptorSet::image_view(((SAMPLES_PER_PIXEL+1)%2) as u32 , view_2.clone()),
+        ],
+    )
+    .unwrap();
+
 
     // command buffer allocator
     let command_buffer_allocator = StandardCommandBufferAllocator::new(
@@ -206,21 +234,22 @@ fn main() {
 
     // init pipeline
     builder
-        .bind_pipeline_compute(compute_pipeline.clone());
+        .bind_pipeline_compute(main_pipeline.clone());
         
 
 
     // record samples
     for i in 0..SAMPLES_PER_PIXEL{
-        let limits = compute_shader::PushConstantData{
-            sphere_amount: sphere_amount.into(),
+        let limits = ray_trace_shader::PushConstantData{
+            sphere_amount: sphere_amount,
+            sample_count: (SAMPLES_PER_PIXEL as u32).into(),
             initial_seed: [
                 rng.gen_range(u32::min_value()..u32::max_value()),
                 rng.gen_range(u32::min_value()..u32::max_value()),
                 rng.gen_range(u32::min_value()..u32::max_value()),
                 rng.gen_range(u32::min_value()..u32::max_value()),
             ],
-            camera: compute_shader::Camera{
+            camera: ray_trace_shader::Camera{
                 look_from: look_from.into(),
                 look_at: look_at.into(),
                 up: up.into(),
@@ -234,7 +263,7 @@ fn main() {
         builder
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
-                compute_pipeline.layout().clone(),
+                main_pipeline.layout().clone(),
                 0,
                 if i%2 == 0 {
                     descriptor_set_1.clone()
@@ -243,15 +272,35 @@ fn main() {
                     descriptor_set_2.clone()
                 }
             )
-            .push_constants(compute_pipeline.layout().clone(), 0, limits)
+            .push_constants(main_pipeline.layout().clone(), 0, limits)
             .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
             .unwrap();
     }
+
+    // final processing
+    builder
+        .bind_pipeline_compute(final_pipeline.clone())
+        .bind_descriptor_sets(
+            PipelineBindPoint::Compute, 
+            final_pipeline_layout.clone(), 
+            0, 
+            final_descriptor_set
+        )
+        .push_constants(final_pipeline_layout.clone(), 0, finalize_shader::PushConstantData{
+            sample_count: SAMPLES_PER_PIXEL as u32
+        })
+        .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
+        .unwrap();
+
     
     // get image back
     builder
         .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
-            output_image_1.clone(),
+            if SAMPLES_PER_PIXEL%2 == 0{
+                output_image_2.clone()
+            } else{
+                output_image_1.clone()
+            },
             output_buff.clone(),
         ))
         .unwrap();

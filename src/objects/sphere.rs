@@ -1,4 +1,4 @@
-use crate::{common::Point3};
+use crate::{common::Point3, ray_trace_shader};
 
 /// A sphere object
 pub struct Sphere{
@@ -19,9 +19,9 @@ impl Sphere{
     }
 }
 
-impl Into<crate::compute_shader::Sphere> for Sphere{
-    fn into(self) -> crate::compute_shader::Sphere {
-        crate::compute_shader::Sphere{
+impl Into<ray_trace_shader::Sphere> for Sphere{
+    fn into(self) -> ray_trace_shader::Sphere {
+        ray_trace_shader::Sphere{
             center: self.center.into(),
             radius: self.radius,
             material_index: self.material as u32,

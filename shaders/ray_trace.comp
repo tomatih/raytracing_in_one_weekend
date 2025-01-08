@@ -40,6 +40,7 @@ struct Camera{
 layout(push_constant) uniform PushConstantData{
     uvec4 initial_seed;
     uint sphere_amount;
+    uint sample_count;
     Camera camera;
 } limits;
 
@@ -349,5 +350,5 @@ void main() {
     }
         
     vec4 samples = imageLoad(img_in, ivec2(gl_GlobalInvocationID.xy));
-    imageStore(img_out, ivec2(gl_GlobalInvocationID.xy), samples + vec4(pixel_color / 10.0, 1.0));
+    imageStore(img_out, ivec2(gl_GlobalInvocationID.xy), samples + vec4(pixel_color, 1.0) / limits.sample_count);
 }
