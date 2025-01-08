@@ -1,21 +1,18 @@
 #![allow(dead_code, unused_variables, unused_mut)]
 
 // project modules
-mod camera;
 mod common;
 mod compute_shader;
 mod vulkan_helper;
-mod ray;
 mod objects;
-mod hit_system;
 mod materials;
 
-use cgmath::Deg;
+use core::f32;
+
 // external imports
 use image::{ImageBuffer, Rgba};
 use materials::Material;
-use rand::{rngs::ThreadRng, Rng};
-use itertools::iproduct;
+use rand::Rng;
 
 // Vulkan inports
 use vulkano::{
@@ -34,18 +31,10 @@ use vulkano::{
     sync::{self, GpuFuture},
 };
 // own imports
-use crate::camera::Camera;
 use crate::objects::Sphere;
 use crate::common::{Point3, Vec3};
 use crate::vulkan_helper::{get_logical_device, get_physical_device, get_vulkan_instance};
 
-fn generate_rays(width: u32, height: u32,camera: &Camera, rng: &mut ThreadRng) -> Vec<compute_shader::Ray> {
-    iproduct!((0..height).rev(), 0..width).map(|(x, y)|{
-        let u = (y as f32 + rng.gen::<f32>()) / (width - 1) as f32;
-        let v = (x as f32 + rng.gen::<f32>()) / (height - 1) as f32;
-        camera.get_ray(u, v).into()
-    }).collect()
-}
 
 fn main() {
     println!("Starting the renderer");
@@ -54,7 +43,7 @@ fn main() {
     const IMAGE_WIDTH: u32 = 400;
     assert!(IMAGE_WIDTH%8 == 0); // needed for shader
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
-    // const SAMPLES_PER_PIXEL: i32 = 500;
+    const SAMPLES_PER_PIXEL: i32 = 10;
 
     // camera
     // let look_from = Point3::new(13.0, 2.0, 3.0);
@@ -63,20 +52,9 @@ fn main() {
     let up = Vec3::unit_y();
     let distance_to_focus = 10.0;
     let aperture = 0.1;
-    let camera = Camera::new(
-        look_from,
-        look_at,
-        up,
-        Deg(20.0),
-        ASPECT_RATIO,
-        aperture,
-        distance_to_focus,
-    );
 
     // generate initial rays
     let mut rng = rand::thread_rng();
-    let mut rays_cpu = generate_rays(IMAGE_WIDTH, IMAGE_HEIGHT, &camera, &mut rng);
-
 
     // make the world
     let materials: Vec<[f32;4]> = vec![
@@ -90,17 +68,7 @@ fn main() {
         Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 1, 1).into(),
         Sphere::new([0.0, 0.0, 0.0].into(), 0.5, 2, 2 ).into(),
     ];
-
-    let limits = compute_shader::PushConstantData{
-        sphere_amount: spheres.len() as u32,
-        initial_seed: [
-            rng.gen_range(u32::min_value()..u32::max_value()),
-            rng.gen_range(u32::min_value()..u32::max_value()),
-            rng.gen_range(u32::min_value()..u32::max_value()),
-            rng.gen_range(u32::min_value()..u32::max_value()),
-        ]
-
-    };
+    let sphere_amount = spheres.len() as u32;
 
     // init vulkan
     let instance = get_vulkan_instance();
@@ -115,7 +83,18 @@ fn main() {
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
 
     // output image
-    let output_image = StorageImage::new(
+    let output_image_1 = StorageImage::new(
+        &memory_allocator,
+        ImageDimensions::Dim2d {
+            width: IMAGE_WIDTH,
+            height: IMAGE_HEIGHT,
+            array_layers: 1,
+        },
+        Format::R8G8B8A8_UNORM,
+        Some(queue.queue_family_index()),
+    )
+    .unwrap();
+    let output_image_2 =  StorageImage::new(
         &memory_allocator,
         ImageDimensions::Dim2d {
             width: IMAGE_WIDTH,
@@ -141,22 +120,8 @@ fn main() {
         (0..IMAGE_WIDTH * IMAGE_HEIGHT * 4).map(|_| 0u8),
     )
     .expect("failed to create buffer");
-    let view = ImageView::new_default(output_image.clone()).unwrap();
-
-
-    // Ray buffer
-    let ray_buffer = Buffer::from_iter(
-        &memory_allocator, 
-        BufferCreateInfo{
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        }, 
-        AllocationCreateInfo{
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        }, 
-        rays_cpu.into_iter()
-    ).unwrap();
+    let view_1 = ImageView::new_default(output_image_1.clone()).unwrap();
+    let view_2 = ImageView::new_default(output_image_2.clone()).unwrap();
 
     // Sphere buffer
     let sphere_buffer = Buffer::from_iter(
@@ -202,12 +167,23 @@ fn main() {
     let descriptor_set_layouts = pipeline_layout.set_layouts();
 
     let descriptor_set_layout = descriptor_set_layouts.get(0).unwrap();
-    let descriptor_set = PersistentDescriptorSet::new(
+    let descriptor_set_1 = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
         descriptor_set_layout.clone(),
         [
-            WriteDescriptorSet::image_view(0, view.clone()),
-            WriteDescriptorSet::buffer(1, ray_buffer.clone()),
+            WriteDescriptorSet::image_view(0, view_1.clone()),
+            WriteDescriptorSet::image_view(1, view_2.clone()),
+            WriteDescriptorSet::buffer(2, sphere_buffer.clone()),
+            WriteDescriptorSet::buffer(3, material_buffer.clone()),
+        ],
+    )
+    .unwrap();
+    let descriptor_set_2 = PersistentDescriptorSet::new(
+        &descriptor_set_allocator,
+        descriptor_set_layout.clone(),
+        [
+            WriteDescriptorSet::image_view(0, view_2.clone()),
+            WriteDescriptorSet::image_view(1, view_1.clone()),
             WriteDescriptorSet::buffer(2, sphere_buffer.clone()),
             WriteDescriptorSet::buffer(3, material_buffer.clone()),
         ],
@@ -228,24 +204,58 @@ fn main() {
     )
     .unwrap();
 
-    //TODO: multiple dispatches (1 per sample)
-    //TODO: extra shader to do final color mapping
+    // init pipeline
     builder
-        .bind_pipeline_compute(compute_pipeline.clone())
-        .bind_descriptor_sets(
-            PipelineBindPoint::Compute,
-            compute_pipeline.layout().clone(),
-            0,
-            descriptor_set,
-        )
-        .push_constants(compute_pipeline.layout().clone(), 0, limits)
-        .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
-        .unwrap()
+        .bind_pipeline_compute(compute_pipeline.clone());
+        
+
+
+    // record samples
+    for i in 0..SAMPLES_PER_PIXEL{
+        let limits = compute_shader::PushConstantData{
+            sphere_amount: sphere_amount.into(),
+            initial_seed: [
+                rng.gen_range(u32::min_value()..u32::max_value()),
+                rng.gen_range(u32::min_value()..u32::max_value()),
+                rng.gen_range(u32::min_value()..u32::max_value()),
+                rng.gen_range(u32::min_value()..u32::max_value()),
+            ],
+            camera: compute_shader::Camera{
+                look_from: look_from.into(),
+                look_at: look_at.into(),
+                up: up.into(),
+                vfov: 20.0 * f32::consts::PI / 180.0,
+                aspect_ratio: ASPECT_RATIO,
+                apeture: aperture,
+                focus_distance: distance_to_focus,
+            },
+
+        };
+        builder
+            .bind_descriptor_sets(
+                PipelineBindPoint::Compute,
+                compute_pipeline.layout().clone(),
+                0,
+                if i%2 == 0 {
+                    descriptor_set_1.clone()
+                }
+                else{
+                    descriptor_set_2.clone()
+                }
+            )
+            .push_constants(compute_pipeline.layout().clone(), 0, limits)
+            .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
+            .unwrap();
+    }
+    
+    // get image back
+    builder
         .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
-            output_image.clone(),
+            output_image_1.clone(),
             output_buff.clone(),
         ))
         .unwrap();
+
 
     let command_buffer = builder.build().unwrap();
 

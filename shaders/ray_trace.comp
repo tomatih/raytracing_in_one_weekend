@@ -2,17 +2,13 @@
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout (set = 0, binding = 0, rgba8) uniform writeonly image2D img;
+layout (set = 0, binding = 0, rgba8) uniform readonly image2D img_in;
+
+layout (set = 0, binding = 1, rgba8) uniform writeonly image2D img_out;
 
 struct Ray{
     vec3 origin;
-    float padding1;
     vec3 direction;
-    float padding2;  
-};
-
-layout (std140, set = 0, binding = 1) readonly buffer RaysIn {
-    Ray rays[];
 };
 
 struct Sphere{
@@ -31,9 +27,20 @@ layout(std140, set = 0, binding = 3) readonly buffer MaterialsIn {
     vec4 materials[];
 };
 
+struct Camera{
+    vec3 look_from;
+    float vfov;
+    vec3 look_at;
+    float aspect_ratio;
+    vec3 up;
+    float apeture;
+    float focus_distance;
+};
+
 layout(push_constant) uniform PushConstantData{
     uvec4 initial_seed;
     uint sphere_amount;
+    Camera camera;
 } limits;
 
 
@@ -150,6 +157,34 @@ float reflectance(float cosine, float ref_idx){
     return r0 + (1.0-r0)*pow(1.0- cosine, 5.0);
 }
 
+Ray get_ray(Camera camera, vec2 uv){
+
+    float h = tan(camera.vfov / 2.0);
+    float viewport_height = 2.0 * h;
+    float viewport_width = camera.aspect_ratio * viewport_height;
+
+    // unit vectors
+    vec3 w = normalize(camera.look_from - camera.look_at);
+    vec3 u = normalize(cross(camera.up,w));
+    vec3 v = cross(w,u);
+
+    vec3 horizontal = camera.focus_distance * viewport_width * u;
+    vec3 vertical = camera.focus_distance * viewport_height * v;
+
+    vec3 lower_left_corner = camera.look_from - horizontal / 2.0 - vertical / 2.0 - camera.focus_distance * w;
+
+    // ray generation
+    vec3 rd = camera.apeture / 2.0 * random_in_unit_sphere();
+    vec3 offset = u * rd.x + v * rd.y;
+
+    Ray ray;
+
+    ray.origin = camera.look_from + offset;
+    ray.direction = lower_left_corner +uv.x*horizontal + uv.y*vertical - camera.look_from - offset;
+
+    return ray;
+}
+
 // -----------------------------------------------------------------------------------
 
 
@@ -245,6 +280,7 @@ bool dielectric(HitRecord hit_record, inout Ray ray, out vec3 color){
     return true;
 }
 
+//TODO: FIX
 bool metal(HitRecord hit_record, inout Ray ray, out vec3 color){
     vec3 reflected = reflect(normalize(ray.direction), hit_record.normal);
 
@@ -265,9 +301,10 @@ void main() {
     // initialize color
     vec3 pixel_color = vec3(1.0);
 
-    //Get ray
-    uint index = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;
-    Ray ray =  rays[index];
+    // getinitial ray
+    vec2 norm_coordinates = (gl_GlobalInvocationID.xy + vec2(0.5) + rand_vec3().xy) / vec2(imageSize(img_out));
+    Ray ray = get_ray(limits.camera, norm_coordinates);
+
 
     // Initialize Hit Record
     HitRecord hit_record;
@@ -310,7 +347,7 @@ void main() {
         }
 
     }
-    
-
-    imageStore(img, ivec2(gl_GlobalInvocationID.xy), vec4(pixel_color, 1.0));
+        
+    vec4 samples = imageLoad(img_in, ivec2(gl_GlobalInvocationID.xy));
+    imageStore(img_out, ivec2(gl_GlobalInvocationID.xy), samples + vec4(pixel_color / 10.0, 1.0));
 }

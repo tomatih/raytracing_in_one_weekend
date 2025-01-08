@@ -1,6 +1,4 @@
-use cgmath::InnerSpace;
-
-use crate::{common::Point3, hit_system::{HitRecord, Hittable}, ray::Ray};
+use crate::{common::Point3};
 
 /// A sphere object
 pub struct Sphere{
@@ -33,32 +31,32 @@ impl Into<crate::compute_shader::Sphere> for Sphere{
     }
 }
 
-impl Hittable for Sphere {
-    fn hit(&self, r: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        // quadratic setup
-        let oc = r.origin - self.center;
-        let a = r.direction.magnitude2();
-        let half_b = oc.dot(r.direction);
-        let c = oc.magnitude2() - self.radius*self.radius;
+// impl Hittable for Sphere {
+//     fn hit(&self, r: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
+//         // quadratic setup
+//         let oc = r.origin - self.center;
+//         let a = r.direction.magnitude2();
+//         let half_b = oc.dot(r.direction);
+//         let c = oc.magnitude2() - self.radius*self.radius;
 
-        // check if there are real solutions
-        let discriminant = half_b*half_b - a*c;
-        if discriminant < 0.0 {
-            return None;
-        }
-        let sqrtd = discriminant.sqrt();
+//         // check if there are real solutions
+//         let discriminant = half_b*half_b - a*c;
+//         if discriminant < 0.0 {
+//             return None;
+//         }
+//         let sqrtd = discriminant.sqrt();
 
-        // find the nearest root in the acceptable range
-        let mut root = (-half_b - sqrtd) /a;
-        if root < t_min || root > t_max {
-            root = (-half_b + sqrtd) /a;
-            if root < t_min || root > t_max{
-                return None;
-            }
-        }
+//         // find the nearest root in the acceptable range
+//         let mut root = (-half_b - sqrtd) /a;
+//         if root < t_min || root > t_max {
+//             root = (-half_b + sqrtd) /a;
+//             if root < t_min || root > t_max{
+//                 return None;
+//             }
+//         }
 
-        // return hit record
-        let outward_normal = (r.at(root) - self.center) / self.radius;
-        Some(HitRecord::new(r.at(root), root, self.material, r, outward_normal))
-    }
-}
+//         // return hit record
+//         let outward_normal = (r.at(root) - self.center) / self.radius;
+//         Some(HitRecord::new(r.at(root), root, self.material, r, outward_normal))
+//     }
+// }
