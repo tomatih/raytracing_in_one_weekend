@@ -22,16 +22,138 @@ struct Sphere{
     uint material_index;
 };
 
-layout(std140,set = 0, binding = 2) readonly buffer SpheresIn {
+layout(std140, set = 0, binding = 2) readonly buffer SpheresIn {
     Sphere spheres[];
 };
 
+layout(std140, set = 0, binding = 3) readonly buffer MaterialsIn {
+    vec4 materials[];
+};
+
 layout(push_constant) uniform PushConstantData{
+    uvec4 initial_seed;
     uint sphere_amount;
 } limits;
 
 
-bool check_hit(Ray ray, float t_min, float t_max, Sphere sphere) {
+struct HitRecord{
+    vec3 p;
+    float t;
+    vec3 normal;
+    uint mat_index;
+    bool front_face;
+};
+
+// -----------------------------------------------------------------------------------
+// Philox implementation from: https://www.shadertoy.com/view/MlXyR8
+const float PI = 3.1415926;
+
+void umulExtended_(uint a, uint b, out uint hi, out uint lo) {
+    const uint WHALF = 16u;
+    const uint LOMASK = (1u<<WHALF)-1u;
+    lo = a*b;               /* full low multiply */
+    uint ahi = a>>WHALF;
+    uint alo = a& LOMASK;
+    uint bhi = b>>WHALF;
+    uint blo = b& LOMASK;
+
+    uint ahbl = ahi*blo;
+    uint albh = alo*bhi;
+
+    uint ahbl_albh = ((ahbl&LOMASK) + (albh&LOMASK));
+    hi = ahi*bhi + (ahbl>>WHALF) +  (albh>>WHALF);
+    hi += ahbl_albh >> WHALF; /* carry from the sum of lo(ahbl) + lo(albh) ) */
+    /* carry from the sum with alo*blo */
+    hi += ((lo >> WHALF) < (ahbl_albh&LOMASK)) ? 1u : 0u;
+}
+
+uvec2 philox4x32Bumpkey(uvec2 key) {
+    uvec2 ret = key;
+    ret.x += 0x9E3779B9u;
+    ret.y += 0xBB67AE85u;
+    return ret;
+}
+
+uvec4 philox4x32Round(uvec4 state, uvec2 key) {
+    const uint M0 = 0xD2511F53u, M1 = 0xCD9E8D57u;
+    uint hi0, lo0, hi1, lo1;
+    //umulExtended(M0, state.x, hi0, lo0);
+    //umulExtended(M1, state.z, hi1, lo1);
+    umulExtended_(M0, state.x, hi0, lo0);
+    umulExtended_(M1, state.z, hi1, lo1);
+
+    return uvec4(
+        hi1^state.y^key.x, lo1,
+        hi0^state.w^key.y, lo0);
+}
+
+uvec4 philox4x32_7(uvec4 plain, uvec2 key) {
+    uvec4 state = plain;
+    uvec2 round_key = key;
+
+    for(int i=0; i<7; ++i) {
+        state = philox4x32Round(state, round_key);
+        round_key = philox4x32Bumpkey(round_key);
+    }
+
+    return state;
+}
+
+float uintToFloat(uint src) {
+    return uintBitsToFloat(0x3f800000u | (src & 0x7fffffu))-1.0;
+}
+
+vec4 uintToFloat(uvec4 src) {
+    return vec4(uintToFloat(src.x), uintToFloat(src.y), uintToFloat(src.z), uintToFloat(src.w));
+}
+
+// -----------------------------------------------------------------------------------
+
+
+// -----------------------------------------------------------------------------------
+// helpers
+vec3 ray_at(Ray ray, float t){
+    return ray.origin + t*ray.direction;
+}
+
+bool near_zero(vec3 vec){
+    const float epsilon = 1e-8;
+    return (abs(vec.x) < epsilon) && (abs(vec.y) < epsilon) && (abs(vec.z) < epsilon);
+}
+
+uvec4 counter = limits.initial_seed;
+
+vec3 rand_vec3(){
+    return uintToFloat(philox4x32_7(counter, ivec2(gl_GlobalInvocationID.xy))).xyz * 2.0 - 1.0;
+}
+
+vec3 random_in_unit_sphere(){
+    vec3 rand = uintToFloat(philox4x32_7(counter, ivec2(gl_GlobalInvocationID.xy))).xyz;
+    float theta = rand.y * 2 * PI;
+    float phi = rand.z * PI;
+    return vec3(
+        rand.x * sin(theta) * cos(phi),
+        rand.x * sin(theta) * sin(phi),
+        rand.x * cos(theta)
+    );
+}
+
+vec3 random_unit_vector(){
+    return normalize(random_in_unit_sphere());
+}
+
+float reflectance(float cosine, float ref_idx){
+    float r0 = (1.0-ref_idx) / (1.0+ref_idx);
+    r0 *= r0;
+    return r0 + (1.0-r0)*pow(1.0- cosine, 5.0);
+}
+
+// -----------------------------------------------------------------------------------
+
+
+// -----------------------------------------------------------------------------------
+// hit system
+bool check_hit(Ray ray, float t_min, float t_max, Sphere sphere, out HitRecord hit) {
     // quadratic setup
     vec3 oc = ray.origin - sphere.center;
     float a = length(ray.direction);
@@ -42,7 +164,7 @@ bool check_hit(Ray ray, float t_min, float t_max, Sphere sphere) {
     // check if there are real solutions
     float discriminant = half_b*half_b - a*c;
     if( discriminant < 0.0 ){
-        return false;
+        return false; // miss
     }
     float sqrtd = sqrt(discriminant);
 
@@ -51,52 +173,124 @@ bool check_hit(Ray ray, float t_min, float t_max, Sphere sphere) {
     if(root < t_min || root > t_max ){
         root = (-half_b + sqrtd) /a;
         if(root < t_min || root > t_max){
-            return false;
+            return false; // miss
         }
     }
 
-    return true; // miss
+    // hill out hit record
+    hit.p = ray_at(ray, root);
+    hit.t = root;
+    hit.mat_index = sphere.material_index;
+    vec3 outward_normal = (hit.p - sphere.center) / sphere.radius;
+    hit.front_face = dot(ray.direction, outward_normal) < 0.0;
+    hit.normal = outward_normal * -int(hit.front_face);
+    return true; // hit
 }
 
 
-bool get_closest_hit(Ray ray, float t_min, float t_max){
+bool get_closest_hit(Ray ray, float t_min, float t_max, out HitRecord hit_record){
     bool hit_anything = false;
     float closest_so_far = t_max;
 
     for(uint i=0; i<limits.sphere_amount; i++){
-        if(check_hit(ray, t_min, closest_so_far, spheres[i])){
+        if(check_hit(ray, t_min, closest_so_far, spheres[i], hit_record)){
             hit_anything = true;
         } 
     }
 
     return hit_anything;
 }
+// -----------------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------------
+// meterial system
+bool lambertian(HitRecord hit_record, inout Ray ray, out vec3 color){
+    vec3 direction = hit_record.normal + random_unit_vector(); // + random
+
+    ray.direction = direction;
+    ray.origin = hit_record.p;
+
+    color =  materials[hit_record.mat_index].xyz;
+
+    return true;
+}
 
 
-// #define BOUNCE_AMOUNT 1
+bool dielectric(HitRecord hit_record, inout Ray ray, out vec3 color){
+    float ir =  materials[hit_record.mat_index].x;
+    float refraction_ratio = pow(ir, -2 * float(hit_record.front_face) + 1);
+
+    vec3 unit_direction = normalize(ray.direction);
+
+    float cos_theta = min(dot(hit_record.normal, -unit_direction), 1.0);
+    float sin_theta = sqrt(1.0 - cos_theta*cos_theta);
+
+    bool canot_refrect = refraction_ratio* sin_theta > 1.0;
+
+    if(canot_refrect  || reflectance(cos_theta, refraction_ratio) > uintToFloat(philox4x32_7(counter, ivec2(gl_GlobalInvocationID.xy))).x){
+        ray.direction = reflect(unit_direction, hit_record.normal);
+    }
+    else{
+
+        ray.direction = refract(unit_direction, hit_record.normal, refraction_ratio);
+    }
+
+    ray.origin = hit_record.p;
+    
+    color = vec3(1.0);
+
+    return true;
+}
+
+bool metal(HitRecord hit_record, inout Ray ray, out vec3 color){
+    vec3 reflected = reflect(normalize(ray.direction), hit_record.normal);
+
+    ray.origin = hit_record.p;
+    ray.direction =  reflected + materials[hit_record.mat_index].w * random_in_unit_sphere();
+
+    color = materials[hit_record.mat_index].xyz;
+
+    return dot(ray.direction, hit_record.normal) > 0.0;
+}
+
+// -----------------------------------------------------------------------------------
+
+#define BOUNCE_AMOUNT 1
 
 void main() {
 
     // initialize color
-    vec3 pixel_color = vec3(0.0);
+    vec3 pixel_color = vec3(1.0);
 
     //Get ray
     uint index = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;
     Ray ray =  rays[index];
 
-
+    // Initialize Hit Record
+    HitRecord hit_record;
+    bool not_absorbed = true;
 
     // bounces
-    // for (int bounce = 0; bounce < BOUNCE_AMOUNT; bounce++) {
-        if (get_closest_hit(ray, 0.001, 1. / 0.)) {
+    for(int bounce=0; bounce<BOUNCE_AMOUNT; bounce++){
 
+        // test hit
+        if (get_closest_hit(ray, 0.001, 1. / 0., hit_record)) {
+            vec3 tmp_color;
+            if(!metal(hit_record, ray, tmp_color)){
+                pixel_color = vec3(0.0);
+                break;
+            }
+            pixel_color *= tmp_color;
         }
-        else {
+        else{
             // sky gradient
             float t = 0.5 * (normalize(ray.direction).y + 1.0);
-            pixel_color = mix(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
+            pixel_color *= mix(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
+            break;
         }
-    // }
+
+    }
+    
 
     imageStore(img, ivec2(gl_GlobalInvocationID.xy), vec4(pixel_color, 1.0));
 }

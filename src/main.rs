@@ -13,6 +13,7 @@ mod materials;
 use cgmath::Deg;
 // external imports
 use image::{ImageBuffer, Rgba};
+use materials::Material;
 use rand::{rngs::ThreadRng, Rng};
 use itertools::iproduct;
 
@@ -78,14 +79,33 @@ fn main() {
 
 
     // make the world
+    let materials: Vec<[f32;4]> = vec![
+        // Material::Lambertian { albedo: [1.0, 0.0, 0.0].into() }.into(),
+        // Material::Lambertian { albedo: [0.0, 1.0, 0.0].into() }.into(),
+        // Material::Lambertian { albedo: [0.0, 0.0, 1.0].into() }.into(),
+        // Material::Dielectric { ir: 1.5 }.into(),
+        // Material::Dielectric { ir: 1.5 }.into(),
+        // Material::Dielectric { ir: 1.5 }.into(),
+        Material::Metal { albedo: [1.0, 0.0, 0.0].into(), fuzziness: 0.0 }.into(),
+        Material::Metal { albedo: [0.0, 1.0, 0.0].into(), fuzziness: 0.5 }.into(),
+        Material::Metal { albedo: [0.0, 0.0, 1.0].into(), fuzziness: 1.0 }.into(),
+    ];
+
     let spheres: Vec<compute_shader::Sphere> = vec![
-        Sphere{ center : [0.0, 0.0, 1.0].into(), radius: 0.5, material: 0 }.into(),
-        Sphere{ center : [0.0, 0.0, -1.0].into(), radius: 0.25, material: 0 }.into(),
-        Sphere{ center : [0.0, 0.0, 0.0].into(), radius: 0.5, material: 0 }.into(),
+        Sphere{ center : [0.0, 0.0, 1.2].into(), radius: 0.5, material: 0 }.into(),
+        Sphere{ center : [0.0, 0.0, -1.2].into(), radius: 0.5, material: 1 }.into(),
+        Sphere{ center : [0.0, 0.0, 0.0].into(), radius: 0.5, material: 2 }.into(),
     ];
 
     let limits = compute_shader::PushConstantData{
-        sphere_amount: spheres.len() as u32
+        sphere_amount: spheres.len() as u32,
+        initial_seed: [
+            rng.gen_range(u32::min_value()..u32::max_value()),
+            rng.gen_range(u32::min_value()..u32::max_value()),
+            rng.gen_range(u32::min_value()..u32::max_value()),
+            rng.gen_range(u32::min_value()..u32::max_value()),
+        ]
+
     };
 
     // init vulkan
@@ -158,6 +178,20 @@ fn main() {
         spheres.into_iter()
     ).unwrap();
 
+    // Material buffer
+    let material_buffer = Buffer::from_iter(
+        &memory_allocator,
+        BufferCreateInfo{
+            usage: BufferUsage::STORAGE_BUFFER, 
+            ..Default::default()
+        },
+        AllocationCreateInfo{
+            usage: MemoryUsage::Upload,
+            ..Default::default()
+        }, 
+        materials.into_iter()
+    ).unwrap();
+
     // create pipeline
     let compute_pipeline = ComputePipeline::new(
         device.clone(),
@@ -181,6 +215,7 @@ fn main() {
             WriteDescriptorSet::image_view(0, view.clone()),
             WriteDescriptorSet::buffer(1, ray_buffer.clone()),
             WriteDescriptorSet::buffer(2, sphere_buffer.clone()),
+            WriteDescriptorSet::buffer(3, material_buffer.clone()),
         ],
     )
     .unwrap();
