@@ -2,7 +2,9 @@
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout (set = 0, binding = 0, rgba8) uniform readonly image2D img_in;
+layout(std140, set = 0, binding = 0) readonly buffer SamplesIn {
+    vec4 samples_in[];
+};
 
 layout (set = 0, binding = 1, rgba8) uniform writeonly image2D img_out;
 
@@ -13,9 +15,10 @@ layout(push_constant) uniform PushConstantData{
 
 
 void main() {
-	vec4 pixel_color = imageLoad(img_in, ivec2(gl_GlobalInvocationID.xy));
-	// pixel_color /= float(push_constant.sample_count); // average samples
-	pixel_color = clamp(sqrt(pixel_color), vec4(0.0), vec4(0.999)); // ensure range 
+	uint index = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;   
+    vec4 pixel_color = samples_in[index];
+	pixel_color /= float(push_constant.sample_count); // average samples
+	// pixel_color = clamp(sqrt(pixel_color), vec4(0.0), vec4(0.999)); // ensure range 
 	pixel_color.w = 1.0; // fix alpha
 	imageStore(img_out, ivec2(gl_GlobalInvocationID.xy), pixel_color);
 }

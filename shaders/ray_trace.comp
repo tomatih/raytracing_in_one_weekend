@@ -2,9 +2,12 @@
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout (set = 0, binding = 0, rgba8) uniform readonly image2D img_in;
-
-layout (set = 0, binding = 1, rgba8) uniform writeonly image2D img_out;
+layout(std140, set = 0, binding = 0) readonly buffer SamplesIn {
+    vec4 samples_in[];
+};
+layout(std140, set = 0, binding = 1) writeonly buffer SamplesOut {
+    vec4 samples_out[];
+};
 
 struct Ray{
     vec3 origin;
@@ -19,11 +22,11 @@ struct Sphere{
     uint material_type;
 };
 
-layout(std140, set = 0, binding = 2) readonly buffer SpheresIn {
+layout(std140, set = 1, binding = 0) readonly buffer SpheresIn {
     Sphere spheres[];
 };
 
-layout(std140, set = 0, binding = 3) readonly buffer MaterialsIn {
+layout(std140, set = 1, binding = 1) readonly buffer MaterialsIn {
     vec4 materials[];
 };
 
@@ -40,7 +43,6 @@ struct Camera{
 layout(push_constant) uniform PushConstantData{
     uvec4 initial_seed;
     uint sphere_amount;
-    uint sample_count;
     Camera camera;
 } limits;
 
@@ -295,7 +297,7 @@ bool metal(HitRecord hit_record, inout Ray ray, out vec3 color){
 
 // -----------------------------------------------------------------------------------
 
-#define BOUNCE_AMOUNT 5
+#define BOUNCE_AMOUNT 50
 
 void main() {
 
@@ -303,7 +305,7 @@ void main() {
     vec3 pixel_color = vec3(1.0);
 
     // getinitial ray
-    vec2 norm_coordinates = (gl_GlobalInvocationID.xy + vec2(0.5) + rand_vec3().xy) / vec2(imageSize(img_out));
+    vec2 norm_coordinates = (gl_GlobalInvocationID.xy + vec2(0.5) + rand_vec3().xy) / (gl_NumWorkGroups.xy * gl_WorkGroupSize.xy);
     Ray ray = get_ray(limits.camera, norm_coordinates);
 
 
@@ -348,7 +350,8 @@ void main() {
         }
 
     }
-        
-    vec4 samples = imageLoad(img_in, ivec2(gl_GlobalInvocationID.xy));
-    imageStore(img_out, ivec2(gl_GlobalInvocationID.xy), samples + vec4(pixel_color, 1.0) / limits.sample_count);
+     
+    uint index = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;   
+    vec4 samples = samples_in[index];
+    samples_out[index] = samples + vec4(pixel_color, 1.0);
 }

@@ -23,13 +23,13 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet
     },
     format::Format,
     image::{view::ImageView, ImageDimensions, StorageImage},
     memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
-    sync::{self, GpuFuture},
+    sync::{self, GpuFuture}, DeviceSize,
 };
 // own imports
 use crate::objects::Sphere;
@@ -44,7 +44,7 @@ fn main() {
     const IMAGE_WIDTH: u32 = 400;
     assert!(IMAGE_WIDTH%8 == 0); // needed for shader
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
-    const SAMPLES_PER_PIXEL: i32 = 10;
+    const SAMPLES_PER_PIXEL: i32 = 500;
 
     // camera
     // let look_from = Point3::new(13.0, 2.0, 3.0);
@@ -86,7 +86,7 @@ fn main() {
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
 
     // output image
-    let output_image_1 = StorageImage::new(
+    let output_image = StorageImage::new(
         &memory_allocator,
         ImageDimensions::Dim2d {
             width: IMAGE_WIDTH,
@@ -97,17 +97,7 @@ fn main() {
         Some(queue.queue_family_index()),
     )
     .unwrap();
-    let output_image_2 =  StorageImage::new(
-        &memory_allocator,
-        ImageDimensions::Dim2d {
-            width: IMAGE_WIDTH,
-            height: IMAGE_HEIGHT,
-            array_layers: 1,
-        },
-        Format::R8G8B8A8_UNORM,
-        Some(queue.queue_family_index()),
-    )
-    .unwrap();
+    let view_1 = ImageView::new_default(output_image.clone()).unwrap(); 
 
     // output data buffer
     let output_buff = Buffer::from_iter(
@@ -123,10 +113,38 @@ fn main() {
         (0..IMAGE_WIDTH * IMAGE_HEIGHT * 4).map(|_| 0u8),
     )
     .expect("failed to create buffer");
-    let view_1 = ImageView::new_default(output_image_1.clone()).unwrap();
-    let view_2 = ImageView::new_default(output_image_2.clone()).unwrap();
+
+
+    // working buffers
+    let working_buff_1 = Buffer::new_slice::<[f32; 4]>(
+        &memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            usage: MemoryUsage::DeviceOnly,
+            ..Default::default()
+        },
+        (IMAGE_WIDTH * IMAGE_HEIGHT) as DeviceSize
+    )
+    .expect("failed to create buffer");
+    let working_buff_2 = Buffer::new_slice::<[f32; 4]>(
+        &memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            usage: MemoryUsage::DeviceOnly,
+            ..Default::default()
+        },
+        (IMAGE_WIDTH * IMAGE_HEIGHT) as DeviceSize
+    )
+    .expect("failed to create buffer");
 
     // Sphere buffer
+    //TODO: add staging
     let sphere_buffer = Buffer::from_iter(
         &memory_allocator,
         BufferCreateInfo{
@@ -141,6 +159,7 @@ fn main() {
     ).unwrap();
 
     // Material buffer
+    //TODO: add staging
     let material_buffer = Buffer::from_iter(
         &memory_allocator,
         BufferCreateInfo{
@@ -177,27 +196,36 @@ fn main() {
     let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
     let main_pipeline_layout = main_pipeline.layout();
     let main_descriptor_set_layouts = main_pipeline_layout.set_layouts();
-    let main_descriptor_set_layout = main_descriptor_set_layouts.get(0).unwrap();
+    let main_descriptor_set_layout_working = main_descriptor_set_layouts.get(0).unwrap();
+    let main_descriptor_set_layout_world = main_descriptor_set_layouts.get(0).unwrap();
+
+    //TODO: splint into 2 sets
+    let descriptor_set_world = PersistentDescriptorSet::new(
+        &descriptor_set_allocator,
+        main_descriptor_set_layout_world.clone(),
+        [
+            WriteDescriptorSet::buffer(0, sphere_buffer.clone()),
+            WriteDescriptorSet::buffer(1, material_buffer.clone()),
+        ],
+    )
+    .unwrap();
+
 
     let descriptor_set_1 = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
-        main_descriptor_set_layout.clone(),
+        main_descriptor_set_layout_working.clone(),
         [
-            WriteDescriptorSet::image_view(0, view_1.clone()),
-            WriteDescriptorSet::image_view(1, view_2.clone()),
-            WriteDescriptorSet::buffer(2, sphere_buffer.clone()),
-            WriteDescriptorSet::buffer(3, material_buffer.clone()),
+            WriteDescriptorSet::buffer(0, working_buff_1.clone()),
+            WriteDescriptorSet::buffer(1, working_buff_2.clone()),
         ],
     )
     .unwrap();
     let descriptor_set_2 = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
-        main_descriptor_set_layout.clone(),
+        main_descriptor_set_layout_working.clone(),
         [
-            WriteDescriptorSet::image_view(0, view_2.clone()),
-            WriteDescriptorSet::image_view(1, view_1.clone()),
-            WriteDescriptorSet::buffer(2, sphere_buffer.clone()),
-            WriteDescriptorSet::buffer(3, material_buffer.clone()),
+            WriteDescriptorSet::buffer(0, working_buff_2.clone()),
+            WriteDescriptorSet::buffer(1, working_buff_1.clone()),
         ],
     )
     .unwrap();
@@ -211,8 +239,13 @@ fn main() {
         &descriptor_set_allocator,
         final_descriptor_set_layout.clone(),
         [
-            WriteDescriptorSet::image_view((SAMPLES_PER_PIXEL%2) as u32 , view_1.clone()),
-            WriteDescriptorSet::image_view(((SAMPLES_PER_PIXEL+1)%2) as u32 , view_2.clone()),
+            WriteDescriptorSet::buffer(0, if SAMPLES_PER_PIXEL%2 == 0 {
+                working_buff_1.clone()
+            }
+            else{
+                working_buff_2.clone()
+            }),
+            WriteDescriptorSet::image_view(1, view_1.clone()),
         ],
     )
     .unwrap();
@@ -234,15 +267,14 @@ fn main() {
 
     // init pipeline
     builder
-        .bind_pipeline_compute(main_pipeline.clone());
-        
+        .bind_pipeline_compute(main_pipeline.clone())
+        .bind_descriptor_sets(PipelineBindPoint::Compute, main_pipeline_layout.clone(), 1, descriptor_set_world);
 
 
     // record samples
     for i in 0..SAMPLES_PER_PIXEL{
         let limits = ray_trace_shader::PushConstantData{
-            sphere_amount: sphere_amount,
-            sample_count: (SAMPLES_PER_PIXEL as u32).into(),
+            sphere_amount: sphere_amount.into(),
             initial_seed: [
                 rng.gen_range(u32::min_value()..u32::max_value()),
                 rng.gen_range(u32::min_value()..u32::max_value()),
@@ -296,11 +328,7 @@ fn main() {
     // get image back
     builder
         .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
-            if SAMPLES_PER_PIXEL%2 == 0{
-                output_image_2.clone()
-            } else{
-                output_image_1.clone()
-            },
+            output_image.clone(),
             output_buff.clone(),
         ))
         .unwrap();
