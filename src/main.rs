@@ -2,11 +2,11 @@
 
 // project modules
 mod common;
-mod ray_trace_shader;
-mod finalize_shader;
+mod shaders;
 mod vulkan_helper;
 mod objects;
 mod materials;
+
 
 use core::f32;
 
@@ -35,7 +35,7 @@ use vulkano::{
 use crate::objects::Sphere;
 use crate::common::{Point3, Vec3};
 use crate::vulkan_helper::{get_logical_device, get_physical_device, get_vulkan_instance};
-
+use crate::shaders::{ray_trace_shader, finalize_shader};
 
 fn main() {
     println!("Starting the renderer");
@@ -272,15 +272,9 @@ fn main() {
 
 
     // record samples
-    for i in 0..SAMPLES_PER_PIXEL{
-        let limits = ray_trace_shader::PushConstantData{
+    let mut push_constants = ray_trace_shader::PushConstantData{
             sphere_amount: sphere_amount.into(),
-            initial_seed: [
-                rng.gen_range(u32::min_value()..u32::max_value()),
-                rng.gen_range(u32::min_value()..u32::max_value()),
-                rng.gen_range(u32::min_value()..u32::max_value()),
-                rng.gen_range(u32::min_value()..u32::max_value()),
-            ],
+            initial_seed: [0,0,0,0],
             camera: ray_trace_shader::Camera{
                 look_from: look_from.into(),
                 look_at: look_at.into(),
@@ -292,6 +286,11 @@ fn main() {
             },
 
         };
+
+    for i in 0..SAMPLES_PER_PIXEL{
+        for i in 0..push_constants.initial_seed.len(){
+            push_constants.initial_seed[i] = rng.gen_range(u32::min_value()..u32::max_value());
+        }
         builder
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
@@ -304,7 +303,7 @@ fn main() {
                     descriptor_set_2.clone()
                 }
             )
-            .push_constants(main_pipeline.layout().clone(), 0, limits)
+            .push_constants(main_pipeline.layout().clone(), 0, push_constants)
             .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
             .unwrap();
     }
