@@ -6,6 +6,7 @@ mod shaders;
 mod vulkan_helper;
 mod objects;
 mod materials;
+mod world;
 
 
 use core::f32;
@@ -19,8 +20,7 @@ use rand::Rng;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet
@@ -31,6 +31,7 @@ use vulkano::{
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     sync::{self, GpuFuture}, DeviceSize,
 };
+use world::WorldCpu;
 // own imports
 use crate::objects::Sphere;
 use crate::common::{Point3, Vec3};
@@ -58,18 +59,15 @@ fn main() {
     let mut rng = rand::thread_rng();
 
     // make the world
-    let materials: Vec<[f32;4]> = vec![
-        Material::Lambertian { albedo: [1.0, 0.0, 0.0].into() }.into(),
-        Material::Dielectric { ir: 1.5 }.into(),
-        Material::Metal { albedo: [0.0, 0.0, 1.0].into(), fuzziness: 1.0 }.into(),
-    ];
+    let mut world = WorldCpu::new();
 
-    let spheres: Vec<ray_trace_shader::Sphere> = vec![
-        Sphere::new([0.0, 0.0, 1.2].into(), 0.5, 0, 0).into(),
-        Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 1, 1).into(),
-        Sphere::new([0.0, 0.0, 0.0].into(), 0.5, 2, 2 ).into(),
-    ];
-    let sphere_amount = spheres.len() as u32;
+    world.add_material(Material::Lambertian { albedo: [1.0, 0.0, 0.0].into() });
+    world.add_material(Material::Dielectric { ir: 1.5 });
+    world.add_material(Material::Metal { albedo: [0.0, 0.0, 1.0].into(), fuzziness: 1.0 });
+
+    world.add_geometry(Sphere::new([0.0, 0.0, 1.2].into(), 0.5, 0, 0));
+    world.add_geometry(Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 1, 1));
+    world.add_geometry(Sphere::new([0.0, 0.0, 0.0].into(), 0.25, 2, 2));
 
     // init vulkan
     let instance = get_vulkan_instance();
@@ -82,8 +80,13 @@ fn main() {
     let final_shader = finalize_shader::load(device.clone()).expect("Failed to load final shader module");
 
 
-    // create a memory allocator
+    // create a memory allocators
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
+    let command_buffer_allocator = StandardCommandBufferAllocator::new(
+        device.clone(),
+        StandardCommandBufferAllocatorCreateInfo::default(),
+    );
+
 
     // output image
     let output_image = StorageImage::new(
@@ -143,35 +146,8 @@ fn main() {
     )
     .expect("failed to create buffer");
 
-    // Sphere buffer
-    //TODO: add staging
-    let sphere_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo{
-            usage: BufferUsage::STORAGE_BUFFER, 
-            ..Default::default()
-        },
-        AllocationCreateInfo{
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        }, 
-        spheres.into_iter()
-    ).unwrap();
-
-    // Material buffer
-    //TODO: add staging
-    let material_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo{
-            usage: BufferUsage::STORAGE_BUFFER, 
-            ..Default::default()
-        },
-        AllocationCreateInfo{
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        }, 
-        materials.into_iter()
-    ).unwrap();
+    // gpu_world
+    let world_gpu = world.upload(&memory_allocator, &command_buffer_allocator, queue.clone(), device.clone());    
 
     // create pipelines
     let main_pipeline = ComputePipeline::new(
@@ -199,13 +175,12 @@ fn main() {
     let main_descriptor_set_layout_working = main_descriptor_set_layouts.get(0).unwrap();
     let main_descriptor_set_layout_world = main_descriptor_set_layouts.get(0).unwrap();
 
-    //TODO: splint into 2 sets
     let descriptor_set_world = PersistentDescriptorSet::new(
         &descriptor_set_allocator,
         main_descriptor_set_layout_world.clone(),
         [
-            WriteDescriptorSet::buffer(0, sphere_buffer.clone()),
-            WriteDescriptorSet::buffer(1, material_buffer.clone()),
+            WriteDescriptorSet::buffer(0, world_gpu.geometry.clone()),
+            WriteDescriptorSet::buffer(1, world_gpu.materials.clone()),
         ],
     )
     .unwrap();
@@ -251,12 +226,6 @@ fn main() {
     .unwrap();
 
 
-    // command buffer allocator
-    let command_buffer_allocator = StandardCommandBufferAllocator::new(
-        device.clone(),
-        StandardCommandBufferAllocatorCreateInfo::default(),
-    );
-
     // command buffer builder
     let mut builder = AutoCommandBufferBuilder::primary(
         &command_buffer_allocator,
@@ -273,7 +242,7 @@ fn main() {
 
     // record samples
     let mut push_constants = ray_trace_shader::PushConstantData{
-            sphere_amount: sphere_amount.into(),
+            sphere_amount: (world_gpu.geometry.size() as u32).into(),
             initial_seed: [0,0,0,0],
             camera: ray_trace_shader::Camera{
                 look_from: look_from.into(),
