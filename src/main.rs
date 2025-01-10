@@ -10,6 +10,7 @@ mod world;
 
 
 use core::f32;
+use std::sync::Arc;
 
 use cgmath::InnerSpace;
 use common::Color;
@@ -22,15 +23,15 @@ use rand::Rng;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet
     },
     format::Format,
-    image::{view::ImageView, ImageDimensions, StorageImage},
-    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
-    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    pipeline::{compute::ComputePipelineCreateInfo, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo},
     sync::{self, GpuFuture}, DeviceSize,
 };
 use world::WorldCpu;
@@ -159,41 +160,49 @@ fn main() {
     let (device, queue) = get_logical_device(physical_device);
 
     // load shaders
-    let main_shader = ray_trace_shader::load(device.clone()).expect("Failed to load main shader module");
-    let final_shader = finalize_shader::load(device.clone()).expect("Failed to load final shader module");
+    let main_shader = ray_trace_shader::load(device.clone()).expect("Failed to load main shader module").entry_point("main").unwrap();
+    let final_shader = finalize_shader::load(device.clone()).expect("Failed to load final shader module").entry_point("main").unwrap();
 
 
     // create a memory allocators
-    let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
-    let command_buffer_allocator = StandardCommandBufferAllocator::new(
+    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+    let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
         device.clone(),
-        StandardCommandBufferAllocatorCreateInfo::default(),
-    );
+        Default::default()
+    ));
+    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(
+        device.clone(), 
+        Default::default()
+    ));
 
 
     // output image
-    let output_image = StorageImage::new(
-        &memory_allocator,
-        ImageDimensions::Dim2d {
-            width: IMAGE_WIDTH,
-            height: IMAGE_HEIGHT,
-            array_layers: 1,
+    let output_image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo{
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [IMAGE_WIDTH, IMAGE_HEIGHT, 1],
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_SRC,
+            ..Default::default()
         },
-        Format::R8G8B8A8_UNORM,
-        Some(queue.queue_family_index()),
+        AllocationCreateInfo{
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        }
     )
     .unwrap();
     let view_1 = ImageView::new_default(output_image.clone()).unwrap(); 
 
     // output data buffer
     let output_buff = Buffer::from_iter(
-        &memory_allocator,
+        memory_allocator.clone(),
         BufferCreateInfo {
             usage: BufferUsage::TRANSFER_DST,
             ..Default::default()
         },
         AllocationCreateInfo {
-            usage: MemoryUsage::Download,
+            memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS | MemoryTypeFilter::PREFER_HOST,
             ..Default::default()
         },
         (0..IMAGE_WIDTH * IMAGE_HEIGHT * 4).map(|_| 0u8),
@@ -203,26 +212,26 @@ fn main() {
 
     // working buffers
     let working_buff_1 = Buffer::new_slice::<[f32; 4]>(
-        &memory_allocator,
+        memory_allocator.clone(),
         BufferCreateInfo {
             usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC,
             ..Default::default()
         },
         AllocationCreateInfo {
-            usage: MemoryUsage::DeviceOnly,
+             memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
             ..Default::default()
         },
         (IMAGE_WIDTH * IMAGE_HEIGHT) as DeviceSize
     )
     .expect("failed to create buffer");
     let working_buff_2 = Buffer::new_slice::<[f32; 4]>(
-        &memory_allocator,
+        memory_allocator.clone(),
         BufferCreateInfo {
             usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC,
             ..Default::default()
         },
         AllocationCreateInfo {
-            usage: MemoryUsage::DeviceOnly,
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
             ..Default::default()
         },
         (IMAGE_WIDTH * IMAGE_HEIGHT) as DeviceSize
@@ -230,29 +239,38 @@ fn main() {
     .expect("failed to create buffer");
 
     // gpu_world
-    let world_gpu = world.upload(&memory_allocator, &command_buffer_allocator, queue.clone(), device.clone());    
+    let world_gpu = world.upload(memory_allocator.clone(), command_buffer_allocator.clone(), queue.clone(), device.clone());    
 
     // create pipelines
+    let main_pipeline_stage = PipelineShaderStageCreateInfo::new(main_shader);
+    let main_pipeline_layout = PipelineLayout::new(
+        device.clone(), 
+        PipelineDescriptorSetLayoutCreateInfo::from_stages([&main_pipeline_stage])
+            .into_pipeline_layout_create_info(device.clone())
+            .unwrap()
+    ).unwrap();
     let main_pipeline = ComputePipeline::new(
         device.clone(),
-        main_shader.entry_point("main").unwrap(),
-        &(),
         None,
-        |_| {},
+        ComputePipelineCreateInfo::stage_layout(main_pipeline_stage, main_pipeline_layout)
     )
     .expect("failed to create compute pipeline");
 
+    let final_pipeline_stage = PipelineShaderStageCreateInfo::new(final_shader);
+    let final_pipeline_layout = PipelineLayout::new(
+        device.clone(), 
+        PipelineDescriptorSetLayoutCreateInfo::from_stages([&final_pipeline_stage])
+            .into_pipeline_layout_create_info(device.clone())
+            .unwrap()
+    ).unwrap();
     let final_pipeline = ComputePipeline::new(
         device.clone(),
-        final_shader.entry_point("main").unwrap(),
-        &(),
         None,
-        |_| {},
+        ComputePipelineCreateInfo::stage_layout(final_pipeline_stage, final_pipeline_layout)
     )
     .expect("failed to create compute pipeline");
 
     // descriptor sets
-    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
     let main_pipeline_layout = main_pipeline.layout();
     let main_descriptor_set_layouts = main_pipeline_layout.set_layouts();
     let main_descriptor_set_layout_working = main_descriptor_set_layouts.get(0).unwrap();
@@ -265,6 +283,7 @@ fn main() {
             WriteDescriptorSet::buffer(0, world_gpu.geometry.clone()),
             WriteDescriptorSet::buffer(1, world_gpu.materials.clone()),
         ],
+        []
     )
     .unwrap();
 
@@ -276,6 +295,7 @@ fn main() {
             WriteDescriptorSet::buffer(0, working_buff_1.clone()),
             WriteDescriptorSet::buffer(1, working_buff_2.clone()),
         ],
+        []
     )
     .unwrap();
     let descriptor_set_2 = PersistentDescriptorSet::new(
@@ -285,6 +305,7 @@ fn main() {
             WriteDescriptorSet::buffer(0, working_buff_2.clone()),
             WriteDescriptorSet::buffer(1, working_buff_1.clone()),
         ],
+        []
     )
     .unwrap();
 
@@ -305,6 +326,7 @@ fn main() {
             }),
             WriteDescriptorSet::image_view(1, view_1.clone()),
         ],
+        []
     )
     .unwrap();
 
@@ -320,7 +342,14 @@ fn main() {
     // init pipeline
     builder
         .bind_pipeline_compute(main_pipeline.clone())
-        .bind_descriptor_sets(PipelineBindPoint::Compute, main_pipeline_layout.clone(), 1, descriptor_set_world);
+        .unwrap()
+        .bind_descriptor_sets(
+            PipelineBindPoint::Compute, 
+            main_pipeline_layout.clone(), 
+            1, 
+            descriptor_set_world
+        )
+        .unwrap();
 
 
     // record samples
@@ -355,7 +384,9 @@ fn main() {
                     descriptor_set_2.clone()
                 }
             )
+            .unwrap()
             .push_constants(main_pipeline.layout().clone(), 0, push_constants)
+            .unwrap()
             .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
             .unwrap();
     }
@@ -363,15 +394,18 @@ fn main() {
     // final processing
     builder
         .bind_pipeline_compute(final_pipeline.clone())
+        .unwrap()
         .bind_descriptor_sets(
             PipelineBindPoint::Compute, 
             final_pipeline_layout.clone(), 
             0, 
             final_descriptor_set
         )
+        .unwrap()
         .push_constants(final_pipeline_layout.clone(), 0, finalize_shader::PushConstantData{
             sample_count: SAMPLES_PER_PIXEL as u32
         })
+        .unwrap()
         .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
         .unwrap();
 
