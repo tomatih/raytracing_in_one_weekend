@@ -42,7 +42,7 @@ fn main() {
     println!("Starting the renderer");
     // image data
     const ASPECT_RATIO: f32 = 16.0 / 9.0;
-    const IMAGE_WIDTH: u32 = 400;
+    const IMAGE_WIDTH: u32 = 1200;
     assert!(IMAGE_WIDTH%8 == 0); // needed for shader
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
     const SAMPLES_PER_PIXEL: i32 = 500;
@@ -66,8 +66,8 @@ fn main() {
     world.add_material(Material::Metal { albedo: [0.0, 0.0, 1.0].into(), fuzziness: 1.0 });
 
     world.add_geometry(Sphere::new([0.0, 0.0, 1.2].into(), 0.5, 0, 0));
-    world.add_geometry(Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 1, 1));
-    world.add_geometry(Sphere::new([0.0, 0.0, 0.0].into(), 0.25, 2, 2));
+    world.add_geometry(Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 2, 2));
+    world.add_geometry(Sphere::new([0.0, 0.0, 0.0].into(), 0.5, 1, 1));
 
     // init vulkan
     let instance = get_vulkan_instance();
