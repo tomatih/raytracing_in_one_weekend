@@ -18,7 +18,7 @@ void main() {
 	uint index = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;   
     vec4 pixel_color = samples_in[index];
 	pixel_color /= float(push_constant.sample_count); // average samples
-	// pixel_color = clamp(sqrt(pixel_color), vec4(0.0), vec4(0.999)); // ensure range 
+	pixel_color = clamp(sqrt(pixel_color), vec4(0.0), vec4(0.999)); // ensure range 
 	pixel_color.w = 1.0; // fix alpha
 	imageStore(img_out, ivec2(gl_GlobalInvocationID.xy), pixel_color);
 }

@@ -11,6 +11,8 @@ mod world;
 
 use core::f32;
 
+use cgmath::InnerSpace;
+use common::Color;
 // external imports
 use image::{ImageBuffer, Rgba};
 use materials::Material;
@@ -38,18 +40,105 @@ use crate::common::{Point3, Vec3};
 use crate::vulkan_helper::{get_logical_device, get_physical_device, get_vulkan_instance};
 use crate::shaders::{ray_trace_shader, finalize_shader};
 
+
+// Generate a scene fileld with random spheres
+fn randon_scene() -> WorldCpu {
+    let mut out = WorldCpu::new();
+
+    // the ground
+    out.add_material(Material::Lambertian {
+        albedo: Color::new(0.5, 0.5, 0.5),
+    });
+    out.add_geometry(Sphere {
+        center: Vec3::new(0.0, -1000.0, 0.0),
+        radius: 1000.0,
+        material: 0,
+        material_type: 0
+    });
+
+    // the reandom speres
+    let mut rng = rand::thread_rng();
+    for a in -11..11 {
+        for b in -11..11 {
+            let material_choice = rng.gen::<f32>();
+
+            out.add_material(if material_choice < 0.8 {
+                Material::Lambertian {
+                    albedo: Color::new(
+                        rng.gen::<f32>() * rng.gen::<f32>(),
+                        rng.gen::<f32>() * rng.gen::<f32>(),
+                        rng.gen::<f32>() * rng.gen::<f32>(),
+                    ),
+                }
+            } else if material_choice < 0.95 {
+                Material::Metal{
+                    albedo: Color::new(rng.gen(), rng.gen(), rng.gen()),
+                    fuzziness: rng.gen_range(0.0..0.5),
+                }
+            } else {
+                Material::Dielectric { ir: 1.5 }
+            });
+
+            let center = Point3::new(
+                (a as f32) + 0.9 * rng.gen::<f32>(),
+                0.2,
+                (b as f32) + 0.9 * rng.gen::<f32>(),
+            );
+
+            if (center - Vec3::new(4.0, 0.2, 0.0)).magnitude() > 0.9 {
+                out.add_geometry(Sphere {
+                    center,
+                    radius: 0.2,
+                    material: out.get_last_material_index(),
+                    material_type: out.get_material_type(out.get_last_material_index())
+
+                });
+            }
+        }
+    }
+
+    out.add_material(Material::Dielectric { ir: 1.5 });
+    out.add_geometry(Sphere {
+        center: Vec3::new(0.0, 1.0, 0.0),
+        radius: 1.0,
+        material: out.get_last_material_index(),
+        material_type: 1
+    });
+
+    out.add_material(Material::Lambertian {
+        albedo: Color::new(0.4, 0.2, 0.1),
+    });
+    out.add_geometry(Sphere {
+        center: Vec3::new(-4.0, 1.0, 0.0),
+        radius: 1.0,
+        material: out.get_last_material_index(),
+        material_type: 0
+    });
+
+    out.add_material(Material::Metal{albedo: Color::new(0.7, 0.6, 0.7), fuzziness: 0.0});
+    out.add_geometry(Sphere {
+        center: Vec3::new(4.0, 1.0, 0.0),
+        radius: 1.0,
+        material: out.get_last_material_index(),
+        material_type: 2
+    });
+
+    out
+}
+
+
 fn main() {
-    println!("Starting the renderer");
+    println!("Program start");
     // image data
-    const ASPECT_RATIO: f32 = 16.0 / 9.0;
+    const ASPECT_RATIO: f32 = 3.0 / 2.0;
     const IMAGE_WIDTH: u32 = 1200;
     assert!(IMAGE_WIDTH%8 == 0); // needed for shader
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
     const SAMPLES_PER_PIXEL: i32 = 500;
 
     // camera
-    // let look_from = Point3::new(13.0, 2.0, 3.0);
-    let look_from = Point3::new(10.0, 0.0, 0.0);
+    let look_from = Point3::new(13.0, 2.0, 3.0);
+    // let look_from = Point3::new(10.0, 0.0, 0.0);
     let look_at = Point3::new(0.0, 0.0, 0.0);
     let up = Vec3::unit_y();
     let distance_to_focus = 10.0;
@@ -59,15 +148,9 @@ fn main() {
     let mut rng = rand::thread_rng();
 
     // make the world
-    let mut world = WorldCpu::new();
-
-    world.add_material(Material::Lambertian { albedo: [1.0, 0.0, 0.0].into() });
-    world.add_material(Material::Dielectric { ir: 1.5 });
-    world.add_material(Material::Metal { albedo: [0.0, 0.0, 1.0].into(), fuzziness: 1.0 });
-
-    world.add_geometry(Sphere::new([0.0, 0.0, 1.2].into(), 0.5, 0, 0));
-    world.add_geometry(Sphere::new([0.0, 0.0, -1.2].into(), 0.5, 2, 2));
-    world.add_geometry(Sphere::new([0.0, 0.0, 0.0].into(), 0.5, 1, 1));
+    println!("Generating world start");
+    let mut world = randon_scene();
+    println!("Generating world end");
 
     // init vulkan
     let instance = get_vulkan_instance();
@@ -305,6 +388,7 @@ fn main() {
     let command_buffer = builder.build().unwrap();
 
     // submit work
+    println!("Render started");
     let future = sync::now(device.clone())
         .then_execute(queue.clone(), command_buffer)
         .unwrap()
@@ -312,6 +396,7 @@ fn main() {
         .unwrap();
 
     future.wait(None).unwrap();
+    println!("Render finished");
 
     // save image on disk
     let buffer_content = output_buff.read().unwrap();

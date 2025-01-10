@@ -243,6 +243,7 @@ bool get_closest_hit(Ray ray, float t_min, float t_max, out HitRecord hit_record
     for(uint i=0; i<limits.sphere_amount; i++){
         if(check_hit(ray, t_min, closest_so_far, spheres[i], hit_record)){
             hit_anything = true;
+            closest_so_far = hit_record.t;
         } 
     }
 
@@ -312,6 +313,7 @@ void main() {
 
     // getinitial ray
     vec2 norm_coordinates = (gl_GlobalInvocationID.xy + vec2(0.5) + rand_vec3().xy) / (gl_NumWorkGroups.xy * gl_WorkGroupSize.xy);
+    norm_coordinates.y = 1.0 - norm_coordinates.y;
     Ray ray = get_ray(limits.camera, norm_coordinates);
 
 

@@ -28,6 +28,14 @@ impl WorldCpu {
 		self.geometry.push(geometry);
 	}
 
+	pub fn get_last_material_index(&self) -> usize{
+		self.materials.len() - 1 
+	}
+
+	pub fn get_material_type(&self, index: usize) -> u32{
+		self.materials[index].get_type()
+	}
+
 	pub fn upload(self, memory_allocator: &(impl MemoryAllocator + ?Sized), command_buffer_allocator: &StandardCommandBufferAllocator, queue: Arc<Queue>, device: Arc<Device>) -> WorldGpu{
 		// make buffers
 		let geometry = Buffer::new_slice::<shaders::ray_trace_shader::Sphere>(

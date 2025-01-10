@@ -19,8 +19,8 @@ impl Into<[f32; 4]> for Material {
     }
 }
 
-impl Into<u32> for Material {
-    fn into(self) -> u32 {
+impl Material {
+    pub fn get_type(&self) -> u32 {
         match self {
             Material::Lambertian { .. } => 0,
             Material::Dielectric { .. } => 1,
