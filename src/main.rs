@@ -19,6 +19,9 @@ use image::{ImageBuffer, Rgba};
 use materials::Material;
 use rand::Rng;
 
+#[cfg(debug_assertions)]
+use renderdoc::{RenderDoc, V130};
+
 // Vulkan inports
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
@@ -158,6 +161,15 @@ fn main() {
     let physical_device = get_physical_device(instance);
     println!("Chosen {}", physical_device.properties().device_name);
     let (device, queue) = get_logical_device(physical_device);
+
+    // init renderdoc
+    #[cfg(debug_assertions)]
+    let mut rd: Option<RenderDoc<V130>> = RenderDoc::new().ok();
+    #[cfg(debug_assertions)]
+    if let Some(x) = rd.as_mut(){
+        x.start_frame_capture(std::ptr::null(), std::ptr::null());
+    }
+    
 
     // load shaders
     let main_shader = ray_trace_shader::load(device.clone()).expect("Failed to load main shader module").entry_point("main").unwrap();
@@ -431,6 +443,11 @@ fn main() {
 
     future.wait(None).unwrap();
     println!("Render finished");
+
+    #[cfg(debug_assertions)]
+    if let Some(x) = rd.as_mut(){
+        x.end_frame_capture(std::ptr::null(), std::ptr::null());
+    }
 
     // save image on disk
     let buffer_content = output_buff.read().unwrap();
