@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use cgmath::Vector4;
 use vulkano::{
 	buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, 
 	command_buffer::{
@@ -88,7 +89,7 @@ impl WorldCpu {
 			}, 
 			self.geometry.into_iter().map(|s| s.into())
 		).unwrap();
-		let material_staging: Subbuffer<[[f32;4]]> = Buffer::from_iter(
+		let material_staging: Subbuffer<[Vector4<f32>]> = Buffer::from_iter(
 			memory_allocator.clone(), 
 			BufferCreateInfo{
 				usage: BufferUsage::TRANSFER_SRC,

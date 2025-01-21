@@ -226,7 +226,7 @@ fn main() {
     let working_buff_1 = Buffer::new_slice::<[f32; 4]>(
         memory_allocator.clone(),
         BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC,
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC | BufferUsage::TRANSFER_DST,
             ..Default::default()
         },
         AllocationCreateInfo {
@@ -239,7 +239,7 @@ fn main() {
     let working_buff_2 = Buffer::new_slice::<[f32; 4]>(
         memory_allocator.clone(),
         BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC,
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC | BufferUsage::TRANSFER_DST,
             ..Default::default()
         },
         AllocationCreateInfo {
@@ -353,6 +353,10 @@ fn main() {
 
     // init pipeline
     builder
+        .fill_buffer(working_buff_1.reinterpret(), 0)
+        .unwrap()
+        .fill_buffer(working_buff_2.reinterpret(), 0)
+        .unwrap()
         .bind_pipeline_compute(main_pipeline.clone())
         .unwrap()
         .bind_descriptor_sets(
@@ -367,7 +371,7 @@ fn main() {
     // record samples
     let mut push_constants = ray_trace_shader::PushConstantData{
             sphere_amount: (world_gpu.geometry.size() as u32).into(),
-            initial_seed: [0,0,0,0],
+            initial_seed: [0,0,0,0].into(),
             camera: ray_trace_shader::Camera{
                 look_from: look_from.into(),
                 look_at: look_at.into(),
@@ -381,7 +385,7 @@ fn main() {
         };
 
     for i in 0..SAMPLES_PER_PIXEL{
-        for i in 0..push_constants.initial_seed.len(){
+        for i in 0..4{
             push_constants.initial_seed[i] = rng.gen_range(u32::min_value()..u32::max_value());
         }
         builder

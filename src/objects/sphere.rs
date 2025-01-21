@@ -22,11 +22,11 @@ impl Sphere{
 impl Into<ray_trace_shader::Sphere> for Sphere{
     fn into(self) -> ray_trace_shader::Sphere {
         ray_trace_shader::Sphere{
-            center: self.center.into(),
+            center: self.center,
             radius: self.radius,
             material_index: self.material as u32,
             material_type: self.material_type,
-            padding: [0.0, 0.0],
+            padding: [0.0, 0.0].into(),
         }
     }
 }
