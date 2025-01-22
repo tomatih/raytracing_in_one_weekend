@@ -1,49 +1,15 @@
-use std::sync::Arc;
+mod vulkan_base;
+mod buffer;
 
-use vulkano::{
-    instance::{Instance, InstanceCreateInfo},
-    VulkanLibrary,
-    device::{
-        physical::PhysicalDevice,Device, Queue, QueueFlags, DeviceCreateInfo, QueueCreateInfo
-    }
-};
+use std::io::Cursor;
 
-pub fn get_vulkan_instance() -> Arc<Instance>{
-    let library = VulkanLibrary::new().expect("no local Vulkan library/DLL");
-    Instance::new(library, InstanceCreateInfo::default()).expect("failed to create instance")
-}
+use ash::{util::read_spv, vk};
+pub use vulkan_base::VulkanBase;
+pub use buffer::Buffer;
 
-pub fn get_physical_device(instance: Arc<Instance>) -> Arc<PhysicalDevice>{
-    //TODO: add choice criteria
-    instance
-        .enumerate_physical_devices()
-        .expect("Could not enumerate devices")
-        .next()
-        .expect("no devices avaiable")
-}
-
-pub fn get_logical_device(physical_device: Arc<PhysicalDevice>) -> (Arc<Device>, Arc<Queue>){
-    // find suitable queues
-    let queue_family_index = physical_device
-        .queue_family_properties()
-        .iter()
-        .enumerate()
-        .position(|(_queue_family_index, queue_family_properties)|{
-            queue_family_properties.queue_flags.contains(QueueFlags::GRAPHICS)
-        }).expect("couldn't find a graphical queue family") as u32;
-
-    //create object
-    // get logical device and queues
-    let (device, mut queues) = Device::new(
-        physical_device,
-        DeviceCreateInfo {
-            queue_create_infos: vec![QueueCreateInfo{
-                queue_family_index,
-                ..Default::default()
-            }],
-            ..Default::default()
-        }
-    ).expect("failed to create device");
-
-    (device, queues.next().unwrap())
+pub unsafe fn load_shader(vulkan_base: &VulkanBase, shader_bytes: &[u8]) -> vk::ShaderModule{
+	let mut shader_file = Cursor::new(shader_bytes);
+	let shader_code = read_spv(&mut shader_file).unwrap();
+	let shader_module_info = vk::ShaderModuleCreateInfo::default().code(&shader_code);
+    vulkan_base.device.create_shader_module(&shader_module_info, None).unwrap()
 }

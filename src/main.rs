@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_variables, unused_mut)]
+#![allow(dead_code, unused_variables, unused_mut, unused_imports)]
 
 // project modules
 mod common;
@@ -12,36 +12,26 @@ mod world;
 use core::f32;
 use std::sync::Arc;
 
-use cgmath::InnerSpace;
+use ash::vk;
+use cgmath::{InnerSpace, Vector4};
 use common::Color;
 // external imports
 use image::{ImageBuffer, Rgba};
+use itertools::Itertools;
 use materials::Material;
 use rand::Rng;
 
 #[cfg(debug_assertions)]
 use renderdoc::{RenderDoc, V130};
 
+use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
+use vulkan_helper::{load_shader, Buffer};
 // Vulkan inports
-use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage},
-    command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo
-    },
-    descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet
-    },
-    format::Format,
-    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
-    pipeline::{compute::ComputePipelineCreateInfo, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo},
-    sync::{self, GpuFuture}, DeviceSize,
-};
-use world::WorldCpu;
 // own imports
+use crate::world::WorldCpu;
 use crate::objects::Sphere;
 use crate::common::{Point3, Vec3};
-use crate::vulkan_helper::{get_logical_device, get_physical_device, get_vulkan_instance};
+use crate::vulkan_helper::{VulkanBase};
 use crate::shaders::{ray_trace_shader, finalize_shader};
 
 
@@ -156,221 +146,277 @@ fn main() {
     let mut world = randon_scene();
     println!("Generating world end");
 
-    // init vulkan
-    let instance = get_vulkan_instance();
-    let physical_device = get_physical_device(instance);
-    println!("Chosen {}", physical_device.properties().device_name);
-    let (device, queue) = get_logical_device(physical_device);
+    let buffer_content = unsafe{
+        // init vulkan
+        let vulkan_base = VulkanBase::new();
 
-    // init renderdoc
-    #[cfg(debug_assertions)]
-    let mut rd: Option<RenderDoc<V130>> = RenderDoc::new().ok();
-    #[cfg(debug_assertions)]
-    if let Some(x) = rd.as_mut(){
-        x.start_frame_capture(std::ptr::null(), std::ptr::null());
-    }
-    
-
-    // load shaders
-    let main_shader = ray_trace_shader::load(device.clone()).expect("Failed to load main shader module").entry_point("main").unwrap();
-    let final_shader = finalize_shader::load(device.clone()).expect("Failed to load final shader module").entry_point("main").unwrap();
-
-
-    // create a memory allocators
-    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-    let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
-        device.clone(),
-        Default::default()
-    ));
-    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(
-        device.clone(), 
-        Default::default()
-    ));
-
-
-    // output image
-    let output_image = Image::new(
-        memory_allocator.clone(),
-        ImageCreateInfo{
-            image_type: ImageType::Dim2d,
-            format: Format::R8G8B8A8_UNORM,
-            extent: [IMAGE_WIDTH, IMAGE_HEIGHT, 1],
-            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo{
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-            ..Default::default()
+        // init renderdoc
+        #[cfg(debug_assertions)]
+        let mut rd: Option<RenderDoc<V130>> = RenderDoc::new().ok();
+        #[cfg(debug_assertions)]
+        if let Some(x) = rd.as_mut(){
+            x.start_frame_capture(std::ptr::null(), std::ptr::null());
         }
-    )
-    .unwrap();
-    let view_1 = ImageView::new_default(output_image.clone()).unwrap(); 
 
-    // output data buffer
-    let output_buff = Buffer::from_iter(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_DST,
+        // load shaders
+        let main_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/ray_trace.comp.spv"));
+        let main_shader_module = load_shader(&vulkan_base, main_shader_bytes);
+        let final_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/finalize.comp.spv"));
+        let final_shader_module = load_shader(&vulkan_base, final_shader_bytes);
+
+        //VMA setup
+        let allocator_create_info = vk_mem::AllocatorCreateInfo::new(
+            &vulkan_base.instance,
+            &vulkan_base.device,
+            vulkan_base.physical_device,
+        );
+        let allocator = vk_mem::Allocator::new(allocator_create_info).unwrap();
+
+        // memory pools
+        let command_pool_create_info = vk::CommandPoolCreateInfo::default().queue_family_index(0);
+        let command_pool = vulkan_base.device.create_command_pool(&command_pool_create_info, None).unwrap();
+        
+        let descriptor_pool_sizes = [
+            vk::DescriptorPoolSize::default().ty(vk::DescriptorType::STORAGE_BUFFER).descriptor_count(7),
+            vk::DescriptorPoolSize::default().ty(vk::DescriptorType::STORAGE_IMAGE).descriptor_count(1),
+        ];
+        let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::default()
+            .max_sets(4)
+            .pool_sizes(&descriptor_pool_sizes);
+        let descriptor_pool = vulkan_base.device.create_descriptor_pool(&descriptor_pool_create_info, None).unwrap();
+
+        // output image
+        let image_create_info = vk::ImageCreateInfo{
+            image_type: vk::ImageType::TYPE_2D,
+            format: vk::Format::R8G8B8A8_UNORM,
+            extent: vk::Extent3D{
+                width: IMAGE_WIDTH,
+                height: IMAGE_HEIGHT,
+                depth:1
+            },
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+            mip_levels: 1,
+            array_layers: 1,
+            samples: vk::SampleCountFlags::TYPE_1,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            tiling: vk::ImageTiling::LINEAR, //TODO: check if optimal won't fuck up the image
             ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS | MemoryTypeFilter::PREFER_HOST,
+        };
+        let image_allocation_info = AllocationCreateInfo{
+            usage: MemoryUsage::AutoPreferDevice,
             ..Default::default()
-        },
-        (0..IMAGE_WIDTH * IMAGE_HEIGHT * 4).map(|_| 0u8),
-    )
-    .expect("failed to create buffer");
-
-
-    // working buffers
-    let working_buff_1 = Buffer::new_slice::<[f32; 4]>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC | BufferUsage::TRANSFER_DST,
+        };
+        let (image, mut image_allocation) = allocator.create_image(&image_create_info, &image_allocation_info).unwrap();
+        let image_view_create_info = vk::ImageViewCreateInfo{
+            image,
+            subresource_range: vk::ImageSubresourceRange{
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+                ..Default::default()
+            },
+            format: vk::Format::R8G8B8A8_UNORM,
+            view_type: vk::ImageViewType::TYPE_2D,
             ..Default::default()
-        },
-        AllocationCreateInfo {
-             memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+        };
+        let image_view = vulkan_base.device.create_image_view(&image_view_create_info, None).unwrap();
+
+        // output buffer
+        let output_buffer_allocation_info = AllocationCreateInfo{
+            usage: MemoryUsage::Auto,
+            flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_RANDOM,
             ..Default::default()
-        },
-        (IMAGE_WIDTH * IMAGE_HEIGHT) as DeviceSize
-    )
-    .expect("failed to create buffer");
-    let working_buff_2 = Buffer::new_slice::<[f32; 4]>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC | BufferUsage::TRANSFER_DST,
+        };
+        let mut output_buffer = Buffer::<u8>::new(
+            &allocator, 
+            vk::BufferUsageFlags::TRANSFER_DST,
+            (IMAGE_HEIGHT * IMAGE_WIDTH * 4) as usize,
+            output_buffer_allocation_info
+        );
+
+        // working buffers
+        let output_buffer_allocation_info = AllocationCreateInfo{
+            usage: MemoryUsage::AutoPreferDevice,
+            flags: vk_mem::AllocationCreateFlags::DEDICATED_MEMORY,
             ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-            ..Default::default()
-        },
-        (IMAGE_WIDTH * IMAGE_HEIGHT) as DeviceSize
-    )
-    .expect("failed to create buffer");
+        };
+        let working_buffer_1 = Buffer::<Vector4<f32>>::new(&allocator, vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST, (IMAGE_HEIGHT*IMAGE_WIDTH) as usize, output_buffer_allocation_info.clone());
+        let working_buffer_2 = Buffer::<Vector4<f32>>::new(&allocator, vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST, (IMAGE_HEIGHT*IMAGE_WIDTH) as usize, output_buffer_allocation_info);
 
-    // gpu_world
-    let world_gpu = world.upload(memory_allocator.clone(), command_buffer_allocator.clone(), queue.clone(), device.clone());    
+        // gpu world
+        let world_gpu = world.upload(&vulkan_base, &allocator, &command_pool);
 
-    // create pipelines
-    let main_pipeline_stage = PipelineShaderStageCreateInfo::new(main_shader);
-    let main_pipeline_layout = PipelineLayout::new(
-        device.clone(), 
-        PipelineDescriptorSetLayoutCreateInfo::from_stages([&main_pipeline_stage])
-            .into_pipeline_layout_create_info(device.clone())
-            .unwrap()
-    ).unwrap();
-    let main_pipeline = ComputePipeline::new(
-        device.clone(),
-        None,
-        ComputePipelineCreateInfo::stage_layout(main_pipeline_stage, main_pipeline_layout)
-    )
-    .expect("failed to create compute pipeline");
+        // descriptor set layouts
+        let buffer_binding_0 = vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+        let buffer_binding_1 = vk::DescriptorSetLayoutBinding::default()
+            .binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+        let main_descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1];
+        let main_descriptor_set_layout = vk::DescriptorSetLayoutCreateInfo::default().bindings(&main_descriptor_set_layout_bindings);
+        let main_descriptor_set_layout = vulkan_base.device.create_descriptor_set_layout(&main_descriptor_set_layout, None).unwrap();
 
-    let final_pipeline_stage = PipelineShaderStageCreateInfo::new(final_shader);
-    let final_pipeline_layout = PipelineLayout::new(
-        device.clone(), 
-        PipelineDescriptorSetLayoutCreateInfo::from_stages([&final_pipeline_stage])
-            .into_pipeline_layout_create_info(device.clone())
-            .unwrap()
-    ).unwrap();
-    let final_pipeline = ComputePipeline::new(
-        device.clone(),
-        None,
-        ComputePipelineCreateInfo::stage_layout(final_pipeline_stage, final_pipeline_layout)
-    )
-    .expect("failed to create compute pipeline");
+        let image_binding_1 = vk::DescriptorSetLayoutBinding::default()
+            .binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+        let final_descriptor_set_layout_bindings = [buffer_binding_0,image_binding_1];
+        let final_descriptor_set_layout = vk::DescriptorSetLayoutCreateInfo::default().bindings(&final_descriptor_set_layout_bindings);
+        let final_descriptor_set_layout = vulkan_base.device.create_descriptor_set_layout(&final_descriptor_set_layout, None).unwrap();
 
-    // descriptor sets
-    let main_pipeline_layout = main_pipeline.layout();
-    let main_descriptor_set_layouts = main_pipeline_layout.set_layouts();
-    let main_descriptor_set_layout_working = main_descriptor_set_layouts.get(0).unwrap();
-    let main_descriptor_set_layout_world = main_descriptor_set_layouts.get(0).unwrap();
+        // pipeline layouts
+        let main_descriptor_set_layouts = [main_descriptor_set_layout, main_descriptor_set_layout];
+        let main_push_constant_ranges = [vk::PushConstantRange::default().size(std::mem::size_of::<ray_trace_shader::PushConstantData>() as u32).stage_flags(vk::ShaderStageFlags::COMPUTE)];
+        let main_pipeline_layout_cerate_info = vk::PipelineLayoutCreateInfo::default().set_layouts(&main_descriptor_set_layouts).push_constant_ranges(&main_push_constant_ranges);
+        let main_pipeline_layout = vulkan_base.device.create_pipeline_layout(&main_pipeline_layout_cerate_info, None).unwrap();
 
-    let descriptor_set_world = PersistentDescriptorSet::new(
-        &descriptor_set_allocator,
-        main_descriptor_set_layout_world.clone(),
-        [
-            WriteDescriptorSet::buffer(0, world_gpu.geometry.clone()),
-            WriteDescriptorSet::buffer(1, world_gpu.materials.clone()),
-        ],
-        []
-    )
-    .unwrap();
+        let final_descriptor_set_layouts = [final_descriptor_set_layout];
+        let final_push_constant_ranges = [vk::PushConstantRange::default().size(std::mem::size_of::<finalize_shader::PushConstantData>() as u32).stage_flags(vk::ShaderStageFlags::COMPUTE)];
+        let final_pipeline_layout_cerate_info = vk::PipelineLayoutCreateInfo::default().set_layouts(&final_descriptor_set_layouts).push_constant_ranges(&final_push_constant_ranges);
+        let final_pipeline_layout = vulkan_base.device.create_pipeline_layout(&final_pipeline_layout_cerate_info, None).unwrap();
+
+        // create pipelines
+        let main_shader_pipeline_stage = vk::PipelineShaderStageCreateInfo::default()
+            .module(main_shader_module)
+            .name(c"main")
+            .stage(vk::ShaderStageFlags::COMPUTE);
+        let main_pipeline_create_info = vk::ComputePipelineCreateInfo::default()
+            .stage(main_shader_pipeline_stage)
+            .layout(main_pipeline_layout);
+        let final_shader_pipeline_stage = vk::PipelineShaderStageCreateInfo::default()
+            .module(final_shader_module)
+            .name(c"main")
+            .stage(vk::ShaderStageFlags::COMPUTE);
+        let final_pipeline_create_info = vk::ComputePipelineCreateInfo::default()
+            .stage(final_shader_pipeline_stage)
+            .layout(final_pipeline_layout);
+        let (main_pipeline, final_pipeline) = vulkan_base.device.create_compute_pipelines(vk::PipelineCache::null(), &[main_pipeline_create_info, final_pipeline_create_info], None).unwrap().into_iter().collect_tuple().unwrap();
+
+        // create descriptor sets
+        let desctiptor_sets_layouts = [main_descriptor_set_layout, main_descriptor_set_layout, main_descriptor_set_layout, final_descriptor_set_layout];
+        let descriptor_allocate_info = vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(&desctiptor_sets_layouts);
+        let (world_descriptor_set, work_descriptor_set_1, work_descriptor_set_2, final_descriptor_set) = vulkan_base.device.allocate_descriptor_sets(&descriptor_allocate_info).unwrap().into_iter().collect_tuple().unwrap();
+
+        // update descriptor sets
+        let geometry_buffer_descriptor_info = [vk::DescriptorBufferInfo::default().buffer(world_gpu.geometry.handle).range(world_gpu.geometry.size)];
+        let world_descriptor_write_geometry = vk::WriteDescriptorSet::default()
+            .dst_set(world_descriptor_set)
+            .dst_binding(0)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&geometry_buffer_descriptor_info);
+        let material_buffer_descriptor_info = [vk::DescriptorBufferInfo::default().buffer(world_gpu.materials.handle).range(world_gpu.materials.size)];
+        let world_descriptor_write_material = vk::WriteDescriptorSet::default()
+            .dst_set(world_descriptor_set)
+            .dst_binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&material_buffer_descriptor_info);
+
+        let work_buffer_1_descriptor_info = [vk::DescriptorBufferInfo::default().buffer(working_buffer_1.handle).range(working_buffer_1.size)];
+        let work_descriptor_1_write_input = vk::WriteDescriptorSet::default()
+            .dst_set(work_descriptor_set_1)
+            .dst_binding(0)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&work_buffer_1_descriptor_info);
+        let work_descriptor_2_write_output = vk::WriteDescriptorSet::default()
+            .dst_set(work_descriptor_set_2)
+            .dst_binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&work_buffer_1_descriptor_info);
+
+        let work_buffer_2_descriptor_info = [vk::DescriptorBufferInfo::default().buffer(working_buffer_2.handle).range(working_buffer_2.size)];
+        let work_descriptor_1_write_output = vk::WriteDescriptorSet::default()
+            .dst_set(work_descriptor_set_1)
+            .dst_binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&work_buffer_2_descriptor_info);
+        let work_descriptor_2_write_input = vk::WriteDescriptorSet::default()
+            .dst_set(work_descriptor_set_2)
+            .dst_binding(0)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&work_buffer_2_descriptor_info);
+
+        let output_image_descriptor_info = [vk::DescriptorImageInfo::default().image_view(image_view).image_layout(vk::ImageLayout::GENERAL)];
+        let final_descriptor_image_write =  vk::WriteDescriptorSet::default()
+            .dst_set(final_descriptor_set)
+            .dst_binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+            .image_info(&output_image_descriptor_info);
+
+        let final_descriptor_source_write = vk::WriteDescriptorSet::default()
+            .dst_set(final_descriptor_set)
+            .dst_binding(0)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(if SAMPLES_PER_PIXEL%2 == 0 {
+                &work_buffer_1_descriptor_info
+            }else {
+                &work_buffer_2_descriptor_info
+            });
+
+        let descriptor_writes = [world_descriptor_write_material, world_descriptor_write_geometry, work_descriptor_1_write_input, work_descriptor_1_write_output, work_descriptor_2_write_input, work_descriptor_2_write_output, final_descriptor_image_write, final_descriptor_source_write];
+        vulkan_base.device.update_descriptor_sets(&descriptor_writes, &[]);
+
+        // start command buffer
+        let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
+            .command_buffer_count(1)
+            .command_pool(command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY);
+        let command_buffer = vulkan_base.device.allocate_command_buffers(&command_buffer_allocation_info).unwrap()[0];
+
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        vulkan_base.device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
+
+        // initialize the pipeline
+        vulkan_base.device.cmd_fill_buffer(command_buffer, working_buffer_1.handle, 0, working_buffer_1.size, 0);
+        vulkan_base.device.cmd_fill_buffer(command_buffer, working_buffer_2.handle, 0, working_buffer_2.size, 0);
+        let initial_buffer_memory_barriers = [
+            vk::BufferMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+                .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+                .src_queue_family_index(0)
+                .dst_queue_family_index(0)
+                .buffer(working_buffer_1.handle)
+                .offset(0)
+                .size(working_buffer_1.size),
+             vk::BufferMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+                .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+                .src_queue_family_index(0)
+                .dst_queue_family_index(0)
+                .buffer(working_buffer_2.handle)
+                .offset(0)
+                .size(working_buffer_2.size)
+        ];
+        let initial_dependency_info = vk::DependencyInfo::default().buffer_memory_barriers(&initial_buffer_memory_barriers);
+        vulkan_base.device.cmd_pipeline_barrier2(command_buffer, &initial_dependency_info);
+        vulkan_base.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::COMPUTE, main_pipeline);
+        vulkan_base.device.cmd_bind_descriptor_sets(command_buffer, vk::PipelineBindPoint::COMPUTE, main_pipeline_layout, 1, &[world_descriptor_set], &[]);
 
 
-    let descriptor_set_1 = PersistentDescriptorSet::new(
-        &descriptor_set_allocator,
-        main_descriptor_set_layout_working.clone(),
-        [
-            WriteDescriptorSet::buffer(0, working_buff_1.clone()),
-            WriteDescriptorSet::buffer(1, working_buff_2.clone()),
-        ],
-        []
-    )
-    .unwrap();
-    let descriptor_set_2 = PersistentDescriptorSet::new(
-        &descriptor_set_allocator,
-        main_descriptor_set_layout_working.clone(),
-        [
-            WriteDescriptorSet::buffer(0, working_buff_2.clone()),
-            WriteDescriptorSet::buffer(1, working_buff_1.clone()),
-        ],
-        []
-    )
-    .unwrap();
-
-
-    let final_pipeline_layout = final_pipeline.layout();
-    let final_descriptor_set_layouts = final_pipeline_layout.set_layouts();
-    let final_descriptor_set_layout = final_descriptor_set_layouts.get(0).unwrap();
-
-    let final_descriptor_set = PersistentDescriptorSet::new(
-        &descriptor_set_allocator,
-        final_descriptor_set_layout.clone(),
-        [
-            WriteDescriptorSet::buffer(0, if SAMPLES_PER_PIXEL%2 == 0 {
-                working_buff_1.clone()
-            }
-            else{
-                working_buff_2.clone()
-            }),
-            WriteDescriptorSet::image_view(1, view_1.clone()),
-        ],
-        []
-    )
-    .unwrap();
-
-
-    // command buffer builder
-    let mut builder = AutoCommandBufferBuilder::primary(
-        &command_buffer_allocator,
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
-
-    // init pipeline
-    builder
-        .fill_buffer(working_buff_1.reinterpret(), 0)
-        .unwrap()
-        .fill_buffer(working_buff_2.reinterpret(), 0)
-        .unwrap()
-        .bind_pipeline_compute(main_pipeline.clone())
-        .unwrap()
-        .bind_descriptor_sets(
-            PipelineBindPoint::Compute, 
-            main_pipeline_layout.clone(), 
-            1, 
-            descriptor_set_world
-        )
-        .unwrap();
-
-
-    // record samples
-    let mut push_constants = ray_trace_shader::PushConstantData{
-            sphere_amount: (world_gpu.geometry.size() as u32).into(),
+        // prepare push constant
+        let mut push_constants = ray_trace_shader::PushConstantData{
+            sphere_amount: (world_gpu.geometry.count as u32).into(),
             initial_seed: [0,0,0,0].into(),
             camera: ray_trace_shader::Camera{
                 look_from: look_from.into(),
@@ -381,84 +427,213 @@ fn main() {
                 apeture: aperture,
                 focus_distance: distance_to_focus,
             },
-
         };
 
-    for i in 0..SAMPLES_PER_PIXEL{
-        for i in 0..4{
-            push_constants.initial_seed[i] = rng.gen_range(u32::min_value()..u32::max_value());
+        // prepare sample barriers
+        let buffer_1_write_wait = vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+            .src_queue_family_index(0)
+            .dst_queue_family_index(0)
+            .buffer(working_buffer_1.handle)
+            .offset(0)
+            .size(working_buffer_1.size);
+        let buffer_1_read_wait = vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+            .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+            .src_queue_family_index(0)
+            .dst_queue_family_index(0)
+            .buffer(working_buffer_1.handle)
+            .offset(0)
+            .size(working_buffer_1.size);
+        let buffer_2_write_wait = vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+            .src_queue_family_index(0)
+            .dst_queue_family_index(0)
+            .buffer(working_buffer_2.handle)
+            .offset(0)
+            .size(working_buffer_2.size);
+        let buffer_2_read_wait = vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+            .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+            .src_queue_family_index(0)
+            .dst_queue_family_index(0)
+            .buffer(working_buffer_2.handle)
+            .offset(0)
+            .size(working_buffer_2.size);
+
+        let barriers_1_to_2 = [buffer_1_read_wait, buffer_2_write_wait];
+        let barriers_2_to_1 = [buffer_1_write_wait, buffer_2_read_wait];
+
+        let dependency_1_to_2 = vk::DependencyInfo::default().buffer_memory_barriers(&barriers_1_to_2);
+        let dependency_2_to_1 = vk::DependencyInfo::default().buffer_memory_barriers(&barriers_2_to_1);
+
+
+        // record samples
+        for i in 0..SAMPLES_PER_PIXEL{
+            for i in 0..4{
+                push_constants.initial_seed[i] = rng.gen_range(u32::min_value()..u32::max_value());
+            }
+
+            vulkan_base.device.cmd_bind_descriptor_sets(
+                command_buffer, 
+                vk::PipelineBindPoint::COMPUTE, 
+                main_pipeline_layout, 
+                0, 
+                &[if i%2==0 { work_descriptor_set_1 } else { work_descriptor_set_2 }], 
+                &[]
+            );
+
+            vulkan_base.device.cmd_push_constants(
+                command_buffer, 
+                main_pipeline_layout, 
+                vk::ShaderStageFlags::COMPUTE, 
+                0, 
+                core::slice::from_raw_parts((&push_constants as *const ray_trace_shader::PushConstantData) as *const u8, core::mem::size_of::<ray_trace_shader::PushConstantData>())
+            );
+
+            vulkan_base.device.cmd_dispatch(command_buffer, IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1);
+
+            vulkan_base.device.cmd_pipeline_barrier2(command_buffer, if i%2==0 { &dependency_1_to_2 } else { &dependency_2_to_1});
         }
-        builder
-            .bind_descriptor_sets(
-                PipelineBindPoint::Compute,
-                main_pipeline.layout().clone(),
-                0,
-                if i%2 == 0 {
-                    descriptor_set_1.clone()
-                }
-                else{
-                    descriptor_set_2.clone()
-                }
-            )
-            .unwrap()
-            .push_constants(main_pipeline.layout().clone(), 0, push_constants)
-            .unwrap()
-            .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
-            .unwrap();
-    }
 
-    // final processing
-    builder
-        .bind_pipeline_compute(final_pipeline.clone())
-        .unwrap()
-        .bind_descriptor_sets(
-            PipelineBindPoint::Compute, 
-            final_pipeline_layout.clone(), 
-            0, 
-            final_descriptor_set
-        )
-        .unwrap()
-        .push_constants(final_pipeline_layout.clone(), 0, finalize_shader::PushConstantData{
+        // prepare image
+        let image_init_barrier = [
+            vk::ImageMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::NONE)
+                .src_access_mask(vk::AccessFlags2::NONE)
+                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .dst_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                .old_layout(vk::ImageLayout::UNDEFINED)
+                .new_layout(vk::ImageLayout::GENERAL)
+                .src_queue_family_index(0)
+                .dst_queue_family_index(0)
+                .image(image)
+                .subresource_range(vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .base_mip_level(0)
+                    .level_count(1)
+                    .base_array_layer(0)
+                    .layer_count(1)
+                )
+        ];
+        let image_init_depencency = vk::DependencyInfo::default().image_memory_barriers(&image_init_barrier);
+        vulkan_base.device.cmd_pipeline_barrier2(command_buffer, &image_init_depencency);
+
+        // final processing
+        vulkan_base.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::COMPUTE, final_pipeline);
+        vulkan_base.device.cmd_bind_descriptor_sets(command_buffer, vk::PipelineBindPoint::COMPUTE, final_pipeline_layout, 0, &[final_descriptor_set], &[]);
+        let final_push_constant = finalize_shader::PushConstantData{
             sample_count: SAMPLES_PER_PIXEL as u32
-        })
-        .unwrap()
-        .dispatch([IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1])
-        .unwrap();
-
-    
-    // get image back
-    builder
-        .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
-            output_image.clone(),
-            output_buff.clone(),
-        ))
-        .unwrap();
+        };
+        vulkan_base.device.cmd_push_constants(
+            command_buffer, 
+            final_pipeline_layout, 
+            vk::ShaderStageFlags::COMPUTE, 
+            0, 
+            core::slice::from_raw_parts((&final_push_constant as *const finalize_shader::PushConstantData) as *const u8, core::mem::size_of::<finalize_shader::PushConstantData>())
+        );
+        vulkan_base.device.cmd_dispatch(command_buffer, IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1);
 
 
-    let command_buffer = builder.build().unwrap();
+        // get image back
+        let final_image_barrier = [
+            vk::ImageMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                .dst_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+                .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
+                .old_layout(vk::ImageLayout::GENERAL)
+                .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+                .src_queue_family_index(0)
+                .dst_queue_family_index(0)
+                .image(image)
+                .subresource_range(vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .base_mip_level(0)
+                    .level_count(1)
+                    .base_array_layer(0)
+                    .layer_count(1)
+                )
+        ];
+        let final_image_depencency = vk::DependencyInfo::default().image_memory_barriers(&final_image_barrier);
+        vulkan_base.device.cmd_pipeline_barrier2(command_buffer, &final_image_depencency);
+        let image_copy_regions = [
+            vk::BufferImageCopy2::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_offset(vk::Offset3D::default())
+                .image_extent(vk::Extent3D::default().width(IMAGE_WIDTH).height(IMAGE_HEIGHT).depth(1))
+                .image_subresource(vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .base_array_layer(0)
+                    .layer_count(1)
+                )
+        ];
+        let copy_image_to_buffer_info = vk::CopyImageToBufferInfo2::default()
+            .src_image(image)
+            .src_image_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+            .dst_buffer(output_buffer.handle)
+            .regions(&image_copy_regions);
+        vulkan_base.device.cmd_copy_image_to_buffer2(command_buffer, &copy_image_to_buffer_info);
 
-    // submit work
-    println!("Render started");
-    let future = sync::now(device.clone())
-        .then_execute(queue.clone(), command_buffer)
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap();
 
-    future.wait(None).unwrap();
-    println!("Render finished");
+        // create fence
+        let fence_create_info = vk::FenceCreateInfo::default();
+        let fence = vulkan_base.device.create_fence(&fence_create_info, None).unwrap();
 
-    #[cfg(debug_assertions)]
-    if let Some(x) = rd.as_mut(){
-        x.end_frame_capture(std::ptr::null(), std::ptr::null());
-    }
+        // submit command buffer
+        vulkan_base.device.end_command_buffer(command_buffer).unwrap();
+        let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
+        let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
+        println!("Render started");
+        vulkan_base.device.queue_submit2(vulkan_base.queue, &to_submit, fence).unwrap();
+        vulkan_base.device.wait_for_fences(&[fence], true, u64::MAX).unwrap();
+        println!("Render finished");
 
-    // save image on disk
-    let buffer_content = output_buff.read().unwrap();
+
+        let image_data = output_buffer.get_buffer_data();
+
+        #[cfg(debug_assertions)]
+        if let Some(x) = rd.as_mut(){
+            x.end_frame_capture(std::ptr::null(), std::ptr::null());
+        }
+
+        // vulkan cleanup
+        vulkan_base.device.device_wait_idle().unwrap();
+
+        allocator.destroy_image(image, &mut image_allocation);
+
+        vulkan_base.device.destroy_fence(fence, None);
+        vulkan_base.device.destroy_descriptor_set_layout(final_descriptor_set_layout, None);
+        vulkan_base.device.destroy_descriptor_set_layout(main_descriptor_set_layout, None);
+        vulkan_base.device.destroy_pipeline(final_pipeline, None);
+        vulkan_base.device.destroy_pipeline(main_pipeline, None);
+        vulkan_base.device.destroy_pipeline_layout(final_pipeline_layout, None);
+        vulkan_base.device.destroy_pipeline_layout(main_pipeline_layout, None);
+        vulkan_base.device.destroy_image_view(image_view, None);
+        vulkan_base.device.destroy_descriptor_pool(descriptor_pool, None);
+        vulkan_base.device.destroy_command_pool(command_pool, None);
+        vulkan_base.device.destroy_shader_module(final_shader_module, None);
+        vulkan_base.device.destroy_shader_module(main_shader_module, None);
+
+        image_data
+    };
+
     let image =
         ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..])
             .unwrap();
     image.save("out.png").unwrap();
-
     println!("Everything worked!");
 }
