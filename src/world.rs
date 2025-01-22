@@ -42,7 +42,6 @@ impl<'a> WorldCpu {
 		// main buffers
 		let main_buffers_allocation_info = AllocationCreateInfo{
 			usage: vk_mem::MemoryUsage::AutoPreferDevice,
-			flags: vk_mem::AllocationCreateFlags::DEDICATED_MEMORY,
 			..Default::default()
 		};
 		let geometry = Buffer::<shaders::ray_trace_shader::Sphere>::new(allocator, BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST, self.geometry.len(), main_buffers_allocation_info.clone());

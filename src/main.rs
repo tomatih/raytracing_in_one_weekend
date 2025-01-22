@@ -199,7 +199,7 @@ fn main() {
             array_layers: 1,
             samples: vk::SampleCountFlags::TYPE_1,
             initial_layout: vk::ImageLayout::UNDEFINED,
-            tiling: vk::ImageTiling::LINEAR, //TODO: check if optimal won't fuck up the image
+            tiling: vk::ImageTiling::OPTIMAL,
             ..Default::default()
         };
         let image_allocation_info = AllocationCreateInfo{
@@ -284,6 +284,11 @@ fn main() {
         let final_pipeline_layout = vulkan_base.device.create_pipeline_layout(&final_pipeline_layout_cerate_info, None).unwrap();
 
         // create pipelines
+        let pipeline_cache_create_into = vk::PipelineCacheCreateInfo::default()
+            .flags(vk::PipelineCacheCreateFlags::EXTERNALLY_SYNCHRONIZED)
+            .initial_data(&[]);
+        let pipeline_cache = vulkan_base.device.create_pipeline_cache(&pipeline_cache_create_into, None).unwrap();
+
         let main_shader_pipeline_stage = vk::PipelineShaderStageCreateInfo::default()
             .module(main_shader_module)
             .name(c"main")
@@ -298,7 +303,7 @@ fn main() {
         let final_pipeline_create_info = vk::ComputePipelineCreateInfo::default()
             .stage(final_shader_pipeline_stage)
             .layout(final_pipeline_layout);
-        let (main_pipeline, final_pipeline) = vulkan_base.device.create_compute_pipelines(vk::PipelineCache::null(), &[main_pipeline_create_info, final_pipeline_create_info], None).unwrap().into_iter().collect_tuple().unwrap();
+        let (main_pipeline, final_pipeline) = vulkan_base.device.create_compute_pipelines(pipeline_cache, &[main_pipeline_create_info, final_pipeline_create_info], None).unwrap().into_iter().collect_tuple().unwrap();
 
         // create descriptor sets
         let desctiptor_sets_layouts = [main_descriptor_set_layout, main_descriptor_set_layout, main_descriptor_set_layout, final_descriptor_set_layout];
@@ -620,6 +625,7 @@ fn main() {
         vulkan_base.device.destroy_descriptor_set_layout(main_descriptor_set_layout, None);
         vulkan_base.device.destroy_pipeline(final_pipeline, None);
         vulkan_base.device.destroy_pipeline(main_pipeline, None);
+        vulkan_base.device.destroy_pipeline_cache(pipeline_cache, None);
         vulkan_base.device.destroy_pipeline_layout(final_pipeline_layout, None);
         vulkan_base.device.destroy_pipeline_layout(main_pipeline_layout, None);
         vulkan_base.device.destroy_image_view(image_view, None);
