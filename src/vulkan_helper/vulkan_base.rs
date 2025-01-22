@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use ash::vk;
 
 pub struct VulkanBase {
@@ -145,7 +143,7 @@ impl VulkanBase {
         // make sure the previous one has finished
         if fence.is_none(){
             self.device
-                .wait_for_fences(&[self.fence], true, Duration::from_secs(10).as_nanos() as u64)
+                .wait_for_fences(&[self.fence], true, u64::MAX)
                 .unwrap();
             self.device.reset_fences(&[self.fence]).unwrap();
         }
