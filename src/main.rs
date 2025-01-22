@@ -121,27 +121,12 @@ fn randon_scene() -> WorldCpu {
 
 unsafe fn initialize_gpu_resources(
     vulkan_base: &VulkanBase,
-    command_pool: &vk::CommandPool,
     working_buffer_1: &Buffer<Vector4<f32>>,
     working_buffer_2: &Buffer<Vector4<f32>>,
     image: &vk::Image,
 ) {
     // start the command buffer
-    let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
-        .command_buffer_count(1)
-        .command_pool(*command_pool)
-        .level(vk::CommandBufferLevel::PRIMARY);
-    let command_buffer = vulkan_base
-        .device
-        .allocate_command_buffers(&command_buffer_allocation_info)
-        .unwrap()[0];
-
-    let command_buffer_begin_info =
-        vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-    vulkan_base
-        .device
-        .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-        .unwrap();
+    let command_buffer = vulkan_base.start_command_buffer();
 
     vulkan_base.device.cmd_fill_buffer(
         command_buffer,
@@ -181,37 +166,11 @@ unsafe fn initialize_gpu_resources(
         .device
         .cmd_pipeline_barrier2(command_buffer, &image_init_depencency);
 
-    vulkan_base
-        .device
-        .end_command_buffer(command_buffer)
-        .unwrap();
-
-    // Await fence
-    let fence_create_info = vk::FenceCreateInfo::default();
-    let fence = vulkan_base
-        .device
-        .create_fence(&fence_create_info, None)
-        .unwrap();
-
-    // submit command buffer
-    let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
-    let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
-    vulkan_base
-        .device
-        .queue_submit2(vulkan_base.queue, &to_submit, fence)
-        .unwrap();
-    vulkan_base
-        .device
-        .wait_for_fences(&[fence], true, u64::MAX)
-        .unwrap();
-
-    // cleanup
-    vulkan_base.device.destroy_fence(fence, None);
+    vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
 unsafe fn render_sample(
     vulkan_base: &VulkanBase,
-    command_pool: &vk::CommandPool,
     pipeline: &vk::Pipeline,
     pipeline_layout: &vk::PipelineLayout,
     world_descriptor_set: &vk::DescriptorSet,
@@ -220,22 +179,7 @@ unsafe fn render_sample(
     image_width: u32,
     image_height: u32,
 ) {
-    // start the command buffer
-    let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
-        .command_buffer_count(1)
-        .command_pool(*command_pool)
-        .level(vk::CommandBufferLevel::PRIMARY);
-    let command_buffer = vulkan_base
-        .device
-        .allocate_command_buffers(&command_buffer_allocation_info)
-        .unwrap()[0];
-
-    let command_buffer_begin_info =
-        vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-    vulkan_base
-        .device
-        .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-        .unwrap();
+    let command_buffer = vulkan_base.start_command_buffer();
 
     vulkan_base
         .device
@@ -264,37 +208,11 @@ unsafe fn render_sample(
         .device
         .cmd_dispatch(command_buffer, image_width / 8, image_height / 8, 1);
 
-    vulkan_base
-        .device
-        .end_command_buffer(command_buffer)
-        .unwrap();
-
-    // Await fence
-    let fence_create_info = vk::FenceCreateInfo::default();
-    let fence = vulkan_base
-        .device
-        .create_fence(&fence_create_info, None)
-        .unwrap();
-
-    // submit command buffer
-    let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
-    let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
-    vulkan_base
-        .device
-        .queue_submit2(vulkan_base.queue, &to_submit, fence)
-        .unwrap();
-    vulkan_base
-        .device
-        .wait_for_fences(&[fence], true, u64::MAX)
-        .unwrap();
-
-    // cleanup
-    vulkan_base.device.destroy_fence(fence, None);
+   vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
 unsafe fn finalize_render(
     vulkan_base: &VulkanBase,
-    command_pool: &vk::CommandPool,
     pipeline: &vk::Pipeline,
     pipeline_layout: &vk::PipelineLayout,
     descriptor_set: &vk::DescriptorSet,
@@ -304,22 +222,7 @@ unsafe fn finalize_render(
     image_width: u32,
     image_height: u32,
 ) {
-    // start the command buffer
-    let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
-        .command_buffer_count(1)
-        .command_pool(*command_pool)
-        .level(vk::CommandBufferLevel::PRIMARY);
-    let command_buffer = vulkan_base
-        .device
-        .allocate_command_buffers(&command_buffer_allocation_info)
-        .unwrap()[0];
-
-    let command_buffer_begin_info =
-        vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-    vulkan_base
-        .device
-        .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-        .unwrap();
+    let command_buffer = vulkan_base.start_command_buffer();
 
     vulkan_base
         .device
@@ -396,32 +299,7 @@ unsafe fn finalize_render(
         .device
         .cmd_copy_image_to_buffer2(command_buffer, &copy_image_to_buffer_info);
 
-    vulkan_base
-        .device
-        .end_command_buffer(command_buffer)
-        .unwrap();
-
-    // Await fence
-    let fence_create_info = vk::FenceCreateInfo::default();
-    let fence = vulkan_base
-        .device
-        .create_fence(&fence_create_info, None)
-        .unwrap();
-
-    // submit command buffer
-    let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
-    let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
-    vulkan_base
-        .device
-        .queue_submit2(vulkan_base.queue, &to_submit, fence)
-        .unwrap();
-    vulkan_base
-        .device
-        .wait_for_fences(&[fence], true, u64::MAX)
-        .unwrap();
-
-    // cleanup
-    vulkan_base.device.destroy_fence(fence, None);
+   vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
 fn main() {
@@ -479,12 +357,6 @@ fn main() {
         let allocator = vk_mem::Allocator::new(allocator_create_info).unwrap();
 
         // memory pools
-        let command_pool_create_info = vk::CommandPoolCreateInfo::default().queue_family_index(0);
-        let command_pool = vulkan_base
-            .device
-            .create_command_pool(&command_pool_create_info, None)
-            .unwrap();
-
         let descriptor_pool_sizes = [
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
@@ -578,7 +450,7 @@ fn main() {
         );
 
         // gpu world
-        let world_gpu = world.upload(&vulkan_base, &allocator, &command_pool);
+        let world_gpu = world.upload(&vulkan_base, &allocator);
 
         // descriptor set layouts
         let buffer_binding_0 = vk::DescriptorSetLayoutBinding::default()
@@ -785,7 +657,6 @@ fn main() {
         // initialize data
         initialize_gpu_resources(
             &vulkan_base,
-            &command_pool,
             &working_buffer_1,
             &working_buffer_2,
             &image,
@@ -814,7 +685,6 @@ fn main() {
 
             render_sample(
                 &vulkan_base,
-                &command_pool,
                 &main_pipeline,
                 &main_pipeline_layout,
                 &world_descriptor_set,
@@ -831,7 +701,6 @@ fn main() {
 
         finalize_render(
             &vulkan_base,
-            &command_pool,
             &final_pipeline,
             &final_pipeline_layout,
             &final_descriptor_set,
@@ -841,6 +710,8 @@ fn main() {
             IMAGE_WIDTH,
             IMAGE_HEIGHT,
         );
+        // wai on last submission
+        vulkan_base.device.wait_for_fences(&[vulkan_base.fence], true, u64::MAX).unwrap();
 
         let image_data = output_buffer.get_buffer_data();
 
@@ -876,7 +747,6 @@ fn main() {
         vulkan_base
             .device
             .destroy_descriptor_pool(descriptor_pool, None);
-        vulkan_base.device.destroy_command_pool(command_pool, None);
         vulkan_base
             .device
             .destroy_shader_module(final_shader_module, None);
