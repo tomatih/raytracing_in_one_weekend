@@ -290,7 +290,6 @@ bool dielectric(HitRecord hit_record, inout Ray ray, out vec3 color){
     return true;
 }
 
-//TODO: FIX
 bool metal(HitRecord hit_record, inout Ray ray, out vec3 color){
     vec3 reflected = reflect(normalize(ray.direction), hit_record.normal);
 
