@@ -21,6 +21,8 @@ To speed up rendering process porting the code to Vulkan compute shaders
 
 ## Progress
 - [x] Setup Vulkan boilerplate
-- [ ] Format data so it can be moved onto the GPU
-- [ ] Write shaders to process the data
-- [ ] Cleanup the code
+- [x] Format data so it can be moved onto the GPU
+- [x] Write shaders to process the data
+- [x] Add staging buffers for world data
+- [x] Move to unsafe binding while chasing UB
+- [x] Cleanup the code
