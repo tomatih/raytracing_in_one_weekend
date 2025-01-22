@@ -124,7 +124,8 @@ fn main() {
     // image data
     const ASPECT_RATIO: f32 = 3.0 / 2.0;
     const IMAGE_WIDTH: u32 = 1200;
-    #[allow(clippy::assertions_on_constants)] {
+    #[allow(clippy::assertions_on_constants)]
+    {
         assert!(IMAGE_WIDTH % 8 == 0); // needed for shader
     }
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
@@ -196,14 +197,15 @@ fn main() {
             .unwrap();
 
         // output image
+        let image_extent = vk::Extent3D {
+            width: IMAGE_WIDTH,
+            height: IMAGE_HEIGHT,
+            depth: 1,
+        };
         let image_create_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
             format: vk::Format::R8G8B8A8_UNORM,
-            extent: vk::Extent3D {
-                width: IMAGE_WIDTH,
-                height: IMAGE_HEIGHT,
-                depth: 1,
-            },
+            extent: image_extent,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
             mip_levels: 1,
             array_layers: 1,
@@ -219,15 +221,16 @@ fn main() {
         let (image, mut image_allocation) = allocator
             .create_image(&image_create_info, &image_allocation_info)
             .unwrap();
+        let image_subresource_range = vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        };
         let image_view_create_info = vk::ImageViewCreateInfo {
             image,
-            subresource_range: vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            },
+            subresource_range: image_subresource_range,
             format: vk::Format::R8G8B8A8_UNORM,
             view_type: vk::ImageViewType::TYPE_2D,
             ..Default::default()
@@ -667,14 +670,7 @@ fn main() {
             .src_queue_family_index(0)
             .dst_queue_family_index(0)
             .image(image)
-            .subresource_range(
-                vk::ImageSubresourceRange::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .base_mip_level(0)
-                    .level_count(1)
-                    .base_array_layer(0)
-                    .layer_count(1),
-            )];
+            .subresource_range(image_subresource_range)];
         let image_init_depencency =
             vk::DependencyInfo::default().image_memory_barriers(&image_init_barrier);
         vulkan_base
@@ -723,14 +719,7 @@ fn main() {
             .src_queue_family_index(0)
             .dst_queue_family_index(0)
             .image(image)
-            .subresource_range(
-                vk::ImageSubresourceRange::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .base_mip_level(0)
-                    .level_count(1)
-                    .base_array_layer(0)
-                    .layer_count(1),
-            )];
+            .subresource_range(image_subresource_range)];
         let final_image_depencency =
             vk::DependencyInfo::default().image_memory_barriers(&final_image_barrier);
         vulkan_base
@@ -741,12 +730,7 @@ fn main() {
             .buffer_row_length(0)
             .buffer_image_height(0)
             .image_offset(vk::Offset3D::default())
-            .image_extent(
-                vk::Extent3D::default()
-                    .width(IMAGE_WIDTH)
-                    .height(IMAGE_HEIGHT)
-                    .depth(1),
-            )
+            .image_extent(image_extent)
             .image_subresource(
                 vk::ImageSubresourceLayers::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
