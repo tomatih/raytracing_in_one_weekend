@@ -56,7 +56,7 @@ impl<'a, T> Buffer<'a, T> {
     }
 }
 
-impl<'a, T> Drop for Buffer<'a, T> {
+impl<T> Drop for Buffer<'_, T> {
     fn drop(&mut self) {
         unsafe {
             self.allocator.destroy_buffer(self.handle, &mut self.memory);

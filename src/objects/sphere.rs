@@ -19,14 +19,13 @@ impl Sphere {
     }
 }
 
-impl Into<ray_trace_shader::Sphere> for Sphere {
-    fn into(self) -> ray_trace_shader::Sphere {
+impl From<Sphere> for ray_trace_shader::Sphere{
+    fn from(value: Sphere) -> Self {
         ray_trace_shader::Sphere {
-            center: self.center,
-            radius: self.radius,
-            material_index: self.material as u32,
-            material_type: self.material_type,
+            center: value.center,
+            radius: value.radius,
+            material_index: value.material as u32,
+            material_type: value.material_type,
             padding: [0.0, 0.0].into(),
-        }
-    }
+        }    }
 }

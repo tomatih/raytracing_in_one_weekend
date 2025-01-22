@@ -124,7 +124,9 @@ fn main() {
     // image data
     const ASPECT_RATIO: f32 = 3.0 / 2.0;
     const IMAGE_WIDTH: u32 = 1200;
-    assert!(IMAGE_WIDTH % 8 == 0); // needed for shader
+    #[allow(clippy::assertions_on_constants)] {
+        assert!(IMAGE_WIDTH % 8 == 0); // needed for shader
+    }
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
     const SAMPLES_PER_PIXEL: i32 = 500;
 
@@ -225,7 +227,6 @@ fn main() {
                 level_count: 1,
                 base_array_layer: 0,
                 layer_count: 1,
-                ..Default::default()
             },
             format: vk::Format::R8G8B8A8_UNORM,
             view_type: vk::ImageViewType::TYPE_2D,
@@ -551,9 +552,9 @@ fn main() {
             sphere_amount: (world_gpu.geometry.count as u32).into(),
             initial_seed: [0, 0, 0, 0].into(),
             camera: ray_trace_shader::Camera {
-                look_from: look_from.into(),
-                look_at: look_at.into(),
-                up: up.into(),
+                look_from,
+                look_at,
+                up,
                 vfov: 20.0 * f32::consts::PI / 180.0,
                 aspect_ratio: ASPECT_RATIO,
                 apeture: aperture,
@@ -614,7 +615,7 @@ fn main() {
         // record samples
         for i in 0..SAMPLES_PER_PIXEL {
             for i in 0..4 {
-                push_constants.initial_seed[i] = rng.gen_range(u32::min_value()..u32::max_value());
+                push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
             }
 
             vulkan_base.device.cmd_bind_descriptor_sets(

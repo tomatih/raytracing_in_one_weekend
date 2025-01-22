@@ -14,7 +14,7 @@ fn build_shader(file_name: String){
 	}
 
 	Command::new("glslang")
-		.args(&["--target-env", "vulkan1.3", "-g", &src_path.into_os_string().into_string().unwrap(), "-o", &dest_path.into_os_string().into_string().unwrap()])
+		.args(["--target-env", "vulkan1.3", "-g", &src_path.into_os_string().into_string().unwrap(), "-o", &dest_path.into_os_string().into_string().unwrap()])
 		.status()
 		.unwrap();
 

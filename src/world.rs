@@ -76,13 +76,13 @@ impl<'a> WorldCpu {
             ..Default::default()
         };
         let mut geometry_staging = Buffer::<shaders::ray_trace_shader::Sphere>::new(
-            &allocator,
+            allocator,
             BufferUsageFlags::TRANSFER_SRC,
             self.geometry.len(),
             staging_buffers_allocation_info.clone(),
         );
         let mut materials_staging = Buffer::<Vector4<f32>>::new(
-            &allocator,
+            allocator,
             BufferUsageFlags::TRANSFER_SRC,
             self.materials.len(),
             staging_buffers_allocation_info,
