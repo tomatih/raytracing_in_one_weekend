@@ -3,8 +3,6 @@ use std::marker::PhantomData;
 use ash::vk;
 use vk_mem::Alloc;
 
-
-
 pub struct Buffer<'a, T> {
     _phantom_data: PhantomData<T>,
     allocator: &'a vk_mem::Allocator,

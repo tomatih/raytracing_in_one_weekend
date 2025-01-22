@@ -1,4 +1,4 @@
-vulkano_shaders::shader!{
+vulkano_shaders::shader! {
     ty: "compute",
     path: "shaders/ray_trace.comp",
     spirv_version: "1.6",
