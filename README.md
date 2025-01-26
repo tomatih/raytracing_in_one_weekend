@@ -26,3 +26,11 @@ To speed up rendering process porting the code to Vulkan compute shaders
 - [x] Add staging buffers for world data
 - [x] Move to unsafe binding while chasing UB
 - [x] Cleanup the code
+- [x] Move to multiple smaller command buffers for better compatibility
+- [ ] Setup SDL3 windowing
+- [ ] Single sample rendering to the window
+- [ ] Dynamic camera
+- [ ] Window resizing
+- [ ] Temporal multi sample
+- [ ] Detection and support for hardware accelerated RT (rayquery)
+- [ ] (?) Sofwfare implementation of BVH as a fallback
