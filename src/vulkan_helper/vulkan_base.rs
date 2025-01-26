@@ -6,6 +6,8 @@ pub struct VulkanBase {
     pub physical_device: vk::PhysicalDevice,
     pub device: ash::Device,
     pub queue: vk::Queue,
+    pub command_pool: vk::CommandPool,
+    pub fence: vk::Fence,
 }
 
 impl VulkanBase {
@@ -90,13 +92,66 @@ impl VulkanBase {
 
         let (device, queue) = Self::get_device_and_queue(&instance, &physical_device);
 
+        let command_pool_create_info = vk::CommandPoolCreateInfo::default().queue_family_index(0);
+        let command_pool = device
+            .create_command_pool(&command_pool_create_info, None)
+            .unwrap();
+
+        let fence_create_info =
+            vk::FenceCreateInfo::default()
+            .flags(vk::FenceCreateFlags::SIGNALED);
+        let fence = device.create_fence(&fence_create_info, None).unwrap();
+
+
         Self {
             _entry,
             instance,
             physical_device,
             device,
             queue,
+            command_pool,
+            fence,
         }
+    }
+
+    pub unsafe fn start_command_buffer(&self) -> vk::CommandBuffer {
+        let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
+            .command_buffer_count(1)
+            .command_pool(self.command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY);
+        let command_buffer = self
+            .device
+            .allocate_command_buffers(&command_buffer_allocation_info)
+            .unwrap()[0];
+
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        self.device
+            .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+            .unwrap();
+
+        command_buffer
+    }
+
+    pub unsafe fn submit_command_buffer(&self, command_buffer: vk::CommandBuffer, fence: Option<vk::Fence>) {
+        self.device.end_command_buffer(command_buffer).unwrap();
+
+        // submit prepare
+        let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
+        let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
+
+        // make sure the previous one has finished
+        if fence.is_none(){
+            self.device
+                .wait_for_fences(&[self.fence], true, u64::MAX)
+                .unwrap();
+            self.device.reset_fences(&[self.fence]).unwrap();
+        }
+
+        // start new submission
+        self.device
+            .queue_submit2(self.queue, &to_submit, fence.unwrap_or(self.fence))
+            .unwrap();
     }
 }
 
@@ -106,6 +161,8 @@ impl Drop for VulkanBase {
             // make sure nothing is being used
             self.device.device_wait_idle().unwrap();
 
+            self.device.destroy_fence(self.fence, None);
+            self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_device(None);
             self.instance.destroy_instance(None);
         }

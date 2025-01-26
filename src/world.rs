@@ -48,7 +48,6 @@ impl<'a> WorldCpu {
         self,
         vulkan_base: &VulkanBase,
         allocator: &'a Allocator,
-        command_pool: &vk::CommandPool,
     ) -> WorldGpu<'a> {
         // main buffers
         let main_buffers_allocation_info = AllocationCreateInfo {
@@ -92,21 +91,7 @@ impl<'a> WorldCpu {
         materials_staging.fill_buffer(self.materials.into_iter().map(|m| m.into()).collect());
 
         // record upload command
-        let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
-            .command_buffer_count(1)
-            .command_pool(*command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY);
-        let command_buffer = vulkan_base
-            .device
-            .allocate_command_buffers(&command_buffer_allocation_info)
-            .unwrap()[0];
-
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        vulkan_base
-            .device
-            .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-            .unwrap();
+        let command_buffer = vulkan_base.start_command_buffer();
 
         // copy geometry
         let geometry_copy_regions = [vk::BufferCopy2::default()
@@ -134,31 +119,14 @@ impl<'a> WorldCpu {
             .device
             .cmd_copy_buffer2(command_buffer, &material_copy_info);
 
-        vulkan_base
-            .device
-            .end_command_buffer(command_buffer)
-            .unwrap();
+        let fence_create_info =
+            vk::FenceCreateInfo::default();
+        let fence = vulkan_base.device.create_fence(&fence_create_info, None).unwrap();
 
-        // Await fence
-        let fence_create_info = vk::FenceCreateInfo::default();
-        let fence = vulkan_base
-            .device
-            .create_fence(&fence_create_info, None)
-            .unwrap();
+        vulkan_base.submit_command_buffer(command_buffer, Some(fence));
 
-        // submit command buffer
-        let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
-        let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
-        vulkan_base
-            .device
-            .queue_submit2(vulkan_base.queue, &to_submit, fence)
-            .unwrap();
-        vulkan_base
-            .device
-            .wait_for_fences(&[fence], true, u64::MAX)
-            .unwrap();
-
-        // cleanup
+        // wait so that staging buffers don't get dropped
+        vulkan_base.device.wait_for_fences(&[fence], true, u64::MAX).unwrap();
         vulkan_base.device.destroy_fence(fence, None);
 
         WorldGpu {
