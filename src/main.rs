@@ -445,31 +445,49 @@ fn main() {
             .create_descriptor_pool(&descriptor_pool_create_info, None)
             .unwrap();
 
-        // present images
-        let present_images = vulkan_base
-            .swapchain_loader
-            .get_swapchain_images(swapchain)
-            .unwrap();
-        let present_image_views: Vec<vk::ImageView> = present_images
-            .iter()
-            .map(|&image| {
-                let create_view_info = vk::ImageViewCreateInfo::default()
-                    .view_type(vk::ImageViewType::TYPE_2D)
-                    .format(surface_format.format)
-                    .subresource_range(vk::ImageSubresourceRange {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        base_mip_level: 0,
-                        level_count: 1,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    })
-                    .image(image);
-                vulkan_base
-                    .device
-                    .create_image_view(&create_view_info, None)
-                    .unwrap()
-            })
-            .collect();
+        // output image
+        // let image_extent = vk::Extent3D {
+        //     width: IMAGE_WIDTH,
+        //     height: IMAGE_HEIGHT,
+        //     depth: 1,
+        // };
+        // let image_create_info = vk::ImageCreateInfo {
+        //     image_type: vk::ImageType::TYPE_2D,
+        //     format: vk::Format::R8G8B8A8_UNORM,
+        //     extent: image_extent,
+        //     usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+        //     mip_levels: 1,
+        //     array_layers: 1,
+        //     samples: vk::SampleCountFlags::TYPE_1,
+        //     initial_layout: vk::ImageLayout::UNDEFINED,
+        //     tiling: vk::ImageTiling::OPTIMAL,
+        //     ..Default::default()
+        // };
+        // let image_allocation_info = AllocationCreateInfo {
+        //     usage: MemoryUsage::AutoPreferDevice,
+        //     ..Default::default()
+        // };
+        // let (image, mut image_allocation) = allocator
+        //     .create_image(&image_create_info, &image_allocation_info)
+        //     .unwrap();
+        // let image_subresource_range = vk::ImageSubresourceRange {
+        //     aspect_mask: vk::ImageAspectFlags::COLOR,
+        //     base_mip_level: 0,
+        //     level_count: 1,
+        //     base_array_layer: 0,
+        //     layer_count: 1,
+        // };
+        // let image_view_create_info = vk::ImageViewCreateInfo {
+        //     image,
+        //     subresource_range: image_subresource_range,
+        //     format: vk::Format::R8G8B8A8_UNORM,
+        //     view_type: vk::ImageViewType::TYPE_2D,
+        //     ..Default::default()
+        // };
+        // let image_view = vulkan_base
+        //     .device
+        //     .create_image_view(&image_view_create_info, None)
+        //     .unwrap();
 
         // working buffers
         let output_buffer_allocation_info = AllocationCreateInfo {
@@ -782,10 +800,7 @@ fn main() {
         vulkan_base
             .device
             .destroy_pipeline_layout(main_pipeline_layout, None);
-         present_image_views
-            .iter()
-            .map(|view| vulkan_base.device.destroy_image_view(*view, None))
-            .count();
+        // vulkan_base.device.destroy_image_view(image_view, None);
         vulkan_base
             .device
             .destroy_descriptor_pool(descriptor_pool, None);
