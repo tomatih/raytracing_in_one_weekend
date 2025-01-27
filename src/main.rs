@@ -394,10 +394,15 @@ fn main() {
             .get_physical_device_surface_capabilities(vulkan_base.physical_device, surface)
             .unwrap();
 
-        let desired_image_count = 3.clamp(
-            surface_capabilities.min_image_count,
-            surface_capabilities.max_image_count,
-        );
+        let desired_image_count = 3;
+        let desired_image_count = if surface_capabilities.max_image_count == 0 {
+            desired_image_count.max(surface_capabilities.min_image_count)
+        } else {
+            desired_image_count.clamp(
+                surface_capabilities.min_image_count,
+                surface_capabilities.max_image_count,
+            )
+        };
         let surface_resolution = vk::Extent2D {
             width: IMAGE_WIDTH,
             height: IMAGE_HEIGHT,
@@ -796,12 +801,15 @@ fn main() {
                 .unwrap();
 
             // get image
-            let (image_index, _) = vulkan_base.swapchain_loader.acquire_next_image(
-                swapchain,
-                u64::MAX,
-                image_acquire_semaphore,
-                vk::Fence::null(),
-            ).unwrap();
+            let (image_index, _) = vulkan_base
+                .swapchain_loader
+                .acquire_next_image(
+                    swapchain,
+                    u64::MAX,
+                    image_acquire_semaphore,
+                    vk::Fence::null(),
+                )
+                .unwrap();
 
             let command_buffer = vulkan_base.start_command_buffer();
 
@@ -836,7 +844,10 @@ fn main() {
                 .wait_semaphores(&wait_semaphores)
                 .swapchains(&swapchains)
                 .image_indices(&imaage_indices);
-            vulkan_base.swapchain_loader.queue_present(vulkan_base.queue, &present_info).unwrap();
+            vulkan_base
+                .swapchain_loader
+                .queue_present(vulkan_base.queue, &present_info)
+                .unwrap();
         }
 
         // record samples
@@ -888,8 +899,12 @@ fn main() {
 
         allocator.destroy_image(image, &mut image_allocation);
 
-        vulkan_base.device.destroy_semaphore(rendering_completed_semaphore, None);
-        vulkan_base.device.destroy_semaphore(image_acquire_semaphore, None);
+        vulkan_base
+            .device
+            .destroy_semaphore(rendering_completed_semaphore, None);
+        vulkan_base
+            .device
+            .destroy_semaphore(image_acquire_semaphore, None);
         vulkan_base
             .device
             .destroy_descriptor_set_layout(final_descriptor_set_layout, None);
