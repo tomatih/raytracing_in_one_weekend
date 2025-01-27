@@ -21,6 +21,8 @@ use rand::Rng;
 #[cfg(debug_assertions)]
 use renderdoc::{RenderDoc, V130};
 
+use sdl3::event::Event;
+use sdl3::keyboard::Keycode;
 use sdl3::surface;
 // Vulkan inports
 use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
@@ -124,7 +126,7 @@ unsafe fn initialize_gpu_resources(
     working_buffer_1: &Buffer<Vector4<f32>>,
     working_buffer_2: &Buffer<Vector4<f32>>,
     image: &vk::Image,
-    present_images: &Vec<vk::Image>
+    present_images: &Vec<vk::Image>,
 ) {
     // start the command buffer
     let command_buffer = vulkan_base.start_command_buffer();
@@ -162,25 +164,27 @@ unsafe fn initialize_gpu_resources(
             layer_count: 1,
         })];
 
-    present_images.iter().for_each(|present_image| image_init_barriers.push(
-        vk::ImageMemoryBarrier2::default()
-            .src_stage_mask(vk::PipelineStageFlags2::NONE)
-            .src_access_mask(vk::AccessFlags2::NONE)
-            .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-            .dst_access_mask(vk::AccessFlags2::NONE)
-            .old_layout(vk::ImageLayout::UNDEFINED)
-            .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-            .src_queue_family_index(0)
-            .dst_queue_family_index(0)
-            .image(*present_image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-        })
-    ));
+    present_images.iter().for_each(|present_image| {
+        image_init_barriers.push(
+            vk::ImageMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::NONE)
+                .src_access_mask(vk::AccessFlags2::NONE)
+                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .dst_access_mask(vk::AccessFlags2::NONE)
+                .old_layout(vk::ImageLayout::UNDEFINED)
+                .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+                .src_queue_family_index(0)
+                .dst_queue_family_index(0)
+                .image(*present_image)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                }),
+        )
+    });
 
     let image_init_depencency =
         vk::DependencyInfo::default().image_memory_barriers(image_init_barriers.as_slice());
@@ -512,7 +516,10 @@ fn main() {
             .unwrap();
 
         // present images
-        let present_images = vulkan_base.swapchain_loader.get_swapchain_images(swapchain).unwrap();
+        let present_images = vulkan_base
+            .swapchain_loader
+            .get_swapchain_images(swapchain)
+            .unwrap();
 
         // working buffers
         let output_buffer_allocation_info = AllocationCreateInfo {
@@ -581,7 +588,8 @@ fn main() {
             .create_pipeline_layout(&main_pipeline_layout_cerate_info, None)
             .unwrap();
 
-        let final_descriptor_set_layouts = [main_descriptor_set_layout, final_descriptor_set_layout];
+        let final_descriptor_set_layouts =
+            [main_descriptor_set_layout, final_descriptor_set_layout];
         let final_push_constant_ranges = [vk::PushConstantRange::default()
             .size(std::mem::size_of::<finalize_shader::PushConstantData>() as u32)
             .stage_flags(vk::ShaderStageFlags::COMPUTE)];
@@ -732,7 +740,7 @@ fn main() {
             &working_buffer_1,
             &working_buffer_2,
             &image,
-            &present_images
+            &present_images,
         );
 
         // prepare push constant
@@ -749,6 +757,87 @@ fn main() {
                 focus_distance: distance_to_focus,
             },
         };
+
+        // setup semaphores
+        let semaphore_create_info = vk::SemaphoreCreateInfo::default();
+        let image_acquire_semaphore = vulkan_base
+            .device
+            .create_semaphore(&semaphore_create_info, None)
+            .unwrap();
+        let rendering_completed_semaphore = vulkan_base
+            .device
+            .create_semaphore(&semaphore_create_info, None)
+            .unwrap();
+
+        let mut event_pump = sdl_context.event_pump().unwrap();
+        'running: loop {
+            // handle events
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::Quit { .. }
+                    | Event::KeyDown {
+                        keycode: Some(Keycode::Escape),
+                        ..
+                    } => {
+                        break 'running;
+                    }
+                    _ => {}
+                }
+            }
+
+            // wait on last command to finish
+            vulkan_base
+                .device
+                .wait_for_fences(&[vulkan_base.fence], true, u64::MAX)
+                .unwrap();
+            vulkan_base
+                .device
+                .reset_fences(&[vulkan_base.fence])
+                .unwrap();
+
+            // get image
+            let (image_index, _) = vulkan_base.swapchain_loader.acquire_next_image(
+                swapchain,
+                u64::MAX,
+                image_acquire_semaphore,
+                vk::Fence::null(),
+            ).unwrap();
+
+            let command_buffer = vulkan_base.start_command_buffer();
+
+            // submit command buffer
+            vulkan_base
+                .device
+                .end_command_buffer(command_buffer)
+                .unwrap();
+
+            let submit_infos =
+                [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
+            let wait_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
+                .semaphore(image_acquire_semaphore)
+                .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
+            let signal_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
+                .semaphore(rendering_completed_semaphore)
+                .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
+            let to_submit = [vk::SubmitInfo2::default()
+                .command_buffer_infos(&submit_infos)
+                .signal_semaphore_infos(&signal_semaphore_infos)
+                .wait_semaphore_infos(&wait_semaphore_infos)];
+            vulkan_base
+                .device
+                .queue_submit2(vulkan_base.queue, &to_submit, vulkan_base.fence)
+                .unwrap();
+
+            // present image
+            let wait_semaphores = [rendering_completed_semaphore];
+            let swapchains = [swapchain];
+            let imaage_indices = [image_index];
+            let present_info = vk::PresentInfoKHR::default()
+                .wait_semaphores(&wait_semaphores)
+                .swapchains(&swapchains)
+                .image_indices(&imaage_indices);
+            vulkan_base.swapchain_loader.queue_present(vulkan_base.queue, &present_info).unwrap();
+        }
 
         // record samples
         // for i in 0..SAMPLES_PER_PIXEL {
@@ -798,7 +887,9 @@ fn main() {
         vulkan_base.device.device_wait_idle().unwrap();
 
         allocator.destroy_image(image, &mut image_allocation);
-        // vulkan_base.device.destroy_fence(fence, None);
+
+        vulkan_base.device.destroy_semaphore(rendering_completed_semaphore, None);
+        vulkan_base.device.destroy_semaphore(image_acquire_semaphore, None);
         vulkan_base
             .device
             .destroy_descriptor_set_layout(final_descriptor_set_layout, None);
