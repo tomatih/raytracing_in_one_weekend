@@ -28,7 +28,7 @@ To speed up rendering process porting the code to Vulkan compute shaders
 - [x] Cleanup the code
 - [x] Move to multiple smaller command buffers for better compatibility
 - [x] Setup SDL3 windowing
-- [ ] Single sample rendering to the window
+- [x] Single sample rendering to the window
 - [ ] Dynamic camera
 - [ ] Window resizing
 - [ ] Temporal multi sample

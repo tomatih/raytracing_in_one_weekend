@@ -762,6 +762,9 @@ fn main() {
                 focus_distance: distance_to_focus,
             },
         };
+        let final_push_constant = finalize_shader::PushConstantData {
+            sample_count: 1, // SAMPLES_PER_PIXEL as u32,
+        };
 
         // setup semaphores
         let semaphore_create_info = vk::SemaphoreCreateInfo::default();
@@ -790,6 +793,11 @@ fn main() {
                 }
             }
 
+            // update random seeds
+            for i in 0..4 {
+                push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
+            }
+
             // wait on last command to finish
             vulkan_base
                 .device
@@ -811,7 +819,210 @@ fn main() {
                 )
                 .unwrap();
 
+            // start command buffer
             let command_buffer = vulkan_base.start_command_buffer();
+
+            // render sample
+            vulkan_base.device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::COMPUTE,
+                main_pipeline,
+            );
+            vulkan_base.device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::COMPUTE,
+                main_pipeline_layout,
+                0,
+                &[work_descriptor_set_1, world_descriptor_set],
+                &[],
+            );
+            vulkan_base.device.cmd_push_constants(
+                command_buffer,
+                final_pipeline_layout,
+                vk::ShaderStageFlags::COMPUTE,
+                0,
+                core::slice::from_raw_parts(
+                    (&push_constants as *const ray_trace_shader::PushConstantData) as *const u8,
+                    core::mem::size_of::<ray_trace_shader::PushConstantData>(),
+                ),
+            );
+            vulkan_base
+                .device
+                .cmd_dispatch(command_buffer, IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1);
+
+            // make sure it finishes
+            let inter_shader_buffer_barriers = [vk::BufferMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .dst_access_mask(vk::AccessFlags2::SHADER_READ)
+                .buffer(working_buffer_2.handle)
+                .offset(0)
+                .size(working_buffer_2.size)];
+            let inter_shader_dependency =
+                vk::DependencyInfo::default().buffer_memory_barriers(&inter_shader_buffer_barriers);
+            vulkan_base
+                .device
+                .cmd_pipeline_barrier2(command_buffer, &inter_shader_dependency);
+
+            // generate image from current sample
+            vulkan_base.device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::COMPUTE,
+                final_pipeline,
+            );
+            vulkan_base.device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::COMPUTE,
+                final_pipeline_layout,
+                0,
+                &[work_descriptor_set_1, final_descriptor_set],
+                &[],
+            );
+            vulkan_base.device.cmd_push_constants(
+                command_buffer,
+                final_pipeline_layout,
+                vk::ShaderStageFlags::COMPUTE,
+                0,
+                core::slice::from_raw_parts(
+                    (&final_push_constant as *const finalize_shader::PushConstantData) as *const u8,
+                    core::mem::size_of::<finalize_shader::PushConstantData>(),
+                ),
+            );
+            vulkan_base
+                .device
+                .cmd_dispatch(command_buffer, IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1);
+
+            // prepare for image blit
+            let image_after_barrier = [
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                    .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::BLIT)
+                    .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
+                    .old_layout(vk::ImageLayout::GENERAL)
+                    .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+                    .src_queue_family_index(0)
+                    .dst_queue_family_index(0)
+                    .image(image)
+                    .subresource_range(
+                        vk::ImageSubresourceRange::default()
+                            .aspect_mask(vk::ImageAspectFlags::COLOR)
+                            .base_mip_level(0)
+                            .level_count(1)
+                            .base_array_layer(0)
+                            .layer_count(1),
+                    ),
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                    .src_access_mask(vk::AccessFlags2::NONE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::BLIT)
+                    .dst_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                    .old_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+                    .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                    .src_queue_family_index(0)
+                    .dst_queue_family_index(0)
+                    .image(present_images[image_index as usize])
+                    .subresource_range(
+                        vk::ImageSubresourceRange::default()
+                            .aspect_mask(vk::ImageAspectFlags::COLOR)
+                            .base_mip_level(0)
+                            .level_count(1)
+                            .base_array_layer(0)
+                            .layer_count(1),
+                    ),
+            ];
+            let after_dependency =
+                vk::DependencyInfo::default().image_memory_barriers(&image_after_barrier);
+            vulkan_base
+                .device
+                .cmd_pipeline_barrier2(command_buffer, &after_dependency);
+
+            // copy to output
+            let copy_regions = [vk::ImageBlit2::default()
+                .src_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .src_offsets([
+                    vk::Offset3D { x: 0, y: 0, z: 0 },
+                    vk::Offset3D {
+                        x: IMAGE_WIDTH as i32,
+                        y: IMAGE_HEIGHT as i32,
+                        z: 1,
+                    },
+                ])
+                .dst_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .dst_offsets([
+                    vk::Offset3D { x: 0, y: 0, z: 0 },
+                    vk::Offset3D {
+                        x: IMAGE_WIDTH as i32,
+                        y: IMAGE_HEIGHT as i32,
+                        z: 1,
+                    },
+                ])];
+            let blit_image_info = vk::BlitImageInfo2::default()
+                .src_image(image)
+                .src_image_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+                .dst_image(present_images[image_index as usize])
+                .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .regions(&copy_regions)
+                .filter(vk::Filter::NEAREST);
+            vulkan_base
+                .device
+                .cmd_blit_image2(command_buffer, &blit_image_info);
+
+            // prepare for present
+            let image_present_barriers = [
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::BLIT)
+                    .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                    .dst_access_mask(vk::AccessFlags2::NONE)
+                    .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                    .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+                    .src_queue_family_index(0)
+                    .dst_queue_family_index(0)
+                    .image(present_images[image_index as usize])
+                    .subresource_range(
+                        vk::ImageSubresourceRange::default()
+                            .aspect_mask(vk::ImageAspectFlags::COLOR)
+                            .base_mip_level(0)
+                            .level_count(1)
+                            .base_array_layer(0)
+                            .layer_count(1),
+                    ),
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::BLIT)
+                    .src_access_mask(vk::AccessFlags2::TRANSFER_READ)
+                    .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                    .dst_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                    .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+                    .new_layout(vk::ImageLayout::GENERAL)
+                    .src_queue_family_index(0)
+                    .dst_queue_family_index(0)
+                    .image(image)
+                    .subresource_range(
+                        vk::ImageSubresourceRange::default()
+                            .aspect_mask(vk::ImageAspectFlags::COLOR)
+                            .base_mip_level(0)
+                            .level_count(1)
+                            .base_array_layer(0)
+                            .layer_count(1),
+                    ),
+            ];
+            let present_dependency =
+                vk::DependencyInfo::default().image_memory_barriers(&image_present_barriers);
+            vulkan_base
+                .device
+                .cmd_pipeline_barrier2(command_buffer, &present_dependency);
 
             // submit command buffer
             vulkan_base
@@ -849,45 +1060,6 @@ fn main() {
                 .queue_present(vulkan_base.queue, &present_info)
                 .unwrap();
         }
-
-        // record samples
-        // for i in 0..SAMPLES_PER_PIXEL {
-        //     for i in 0..4 {
-        //         push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
-        //     }
-
-        //     render_sample(
-        //         &vulkan_base,
-        //         &main_pipeline,
-        //         &main_pipeline_layout,
-        //         &world_descriptor_set,
-        //         if i % 2 == 0 {
-        //             &work_descriptor_set_1
-        //         } else {
-        //             &work_descriptor_set_2
-        //         },
-        //         &push_constants,
-        //         IMAGE_WIDTH,
-        //         IMAGE_HEIGHT,
-        //     );
-        // }
-
-        // finalize_render(
-        //     &vulkan_base,
-        //     &final_pipeline,
-        //     &final_pipeline_layout,
-        //     &final_descriptor_set,
-        //     &image,
-        //     &output_buffer,
-        //     SAMPLES_PER_PIXEL as u32,
-        //     IMAGE_WIDTH,
-        //     IMAGE_HEIGHT,
-        // );
-        // // wai on last submission
-        // vulkan_base
-        //     .device
-        //     .wait_for_fences(&[vulkan_base.fence], true, u64::MAX)
-        //     .unwrap();
 
         #[cfg(debug_assertions)]
         if let Some(x) = rd.as_mut() {
