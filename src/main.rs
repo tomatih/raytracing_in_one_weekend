@@ -432,13 +432,13 @@ fn main() {
         let descriptor_pool_sizes = [
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(7),
+                .descriptor_count(6),
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_IMAGE)
-                .descriptor_count(1),
+                .descriptor_count(desired_image_count),
         ];
         let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(4)
+            .max_sets(desired_image_count + 3)
             .pool_sizes(&descriptor_pool_sizes);
         let descriptor_pool = vulkan_base
             .device
@@ -504,29 +504,32 @@ fn main() {
             .descriptor_count(1)
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .stage_flags(vk::ShaderStageFlags::COMPUTE);
-        let main_descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1];
-        let main_descriptor_set_layout = vk::DescriptorSetLayoutCreateInfo::default()
-            .bindings(&main_descriptor_set_layout_bindings);
-        let main_descriptor_set_layout = vulkan_base
+        let duble_buffer_descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1];
+        let double_buffer_descriptor_set_layout = vk::DescriptorSetLayoutCreateInfo::default()
+            .bindings(&duble_buffer_descriptor_set_layout_bindings);
+        let double_buffer_descriptor_set_layout = vulkan_base
             .device
-            .create_descriptor_set_layout(&main_descriptor_set_layout, None)
+            .create_descriptor_set_layout(&double_buffer_descriptor_set_layout, None)
             .unwrap();
 
-        let image_binding_1 = vk::DescriptorSetLayoutBinding::default()
-            .binding(1)
+        let image_binding_0 = vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
             .descriptor_count(1)
             .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
             .stage_flags(vk::ShaderStageFlags::COMPUTE);
-        let final_descriptor_set_layout_bindings = [buffer_binding_0, image_binding_1];
-        let final_descriptor_set_layout = vk::DescriptorSetLayoutCreateInfo::default()
-            .bindings(&final_descriptor_set_layout_bindings);
-        let final_descriptor_set_layout = vulkan_base
+        let present_descriptor_set_layout_bindings = [image_binding_0];
+        let presnet_descriptor_set_layout = vk::DescriptorSetLayoutCreateInfo::default()
+            .bindings(&present_descriptor_set_layout_bindings);
+        let present_descriptor_set_layout = vulkan_base
             .device
-            .create_descriptor_set_layout(&final_descriptor_set_layout, None)
+            .create_descriptor_set_layout(&presnet_descriptor_set_layout, None)
             .unwrap();
 
         // pipeline layouts
-        let main_descriptor_set_layouts = [main_descriptor_set_layout, main_descriptor_set_layout];
+        let main_descriptor_set_layouts = [
+            double_buffer_descriptor_set_layout,
+            double_buffer_descriptor_set_layout,
+        ];
         let main_push_constant_ranges = [vk::PushConstantRange::default()
             .size(std::mem::size_of::<ray_trace_shader::PushConstantData>() as u32)
             .stage_flags(vk::ShaderStageFlags::COMPUTE)];
@@ -538,7 +541,10 @@ fn main() {
             .create_pipeline_layout(&main_pipeline_layout_cerate_info, None)
             .unwrap();
 
-        let final_descriptor_set_layouts = [final_descriptor_set_layout];
+        let final_descriptor_set_layouts = [
+            present_descriptor_set_layout,
+            double_buffer_descriptor_set_layout,
+        ];
         let final_push_constant_ranges = [vk::PushConstantRange::default()
             .size(std::mem::size_of::<finalize_shader::PushConstantData>() as u32)
             .stage_flags(vk::ShaderStageFlags::COMPUTE)];
@@ -586,27 +592,32 @@ fn main() {
             .unwrap();
 
         // create descriptor sets
-        let desctiptor_sets_layouts = [
-            main_descriptor_set_layout,
-            main_descriptor_set_layout,
-            main_descriptor_set_layout,
-            final_descriptor_set_layout,
+        let mut desctiptor_sets_layouts = vec![
+            double_buffer_descriptor_set_layout,
+            double_buffer_descriptor_set_layout,
+            double_buffer_descriptor_set_layout,
         ];
+        present_images
+            .iter()
+            .for_each(|_| desctiptor_sets_layouts.push(present_descriptor_set_layout));
+
         let descriptor_allocate_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(descriptor_pool)
-            .set_layouts(&desctiptor_sets_layouts);
-        let (
-            world_descriptor_set,
-            work_descriptor_set_1,
-            work_descriptor_set_2,
-            final_descriptor_set,
-        ) = vulkan_base
+            .set_layouts(desctiptor_sets_layouts.as_slice());
+
+        let descriptor_sets = vulkan_base
             .device
             .allocate_descriptor_sets(&descriptor_allocate_info)
-            .unwrap()
+            .unwrap();
+
+        let (world_descriptor_set, work_descriptor_set_1, work_descriptor_set_2) = descriptor_sets
+            [0..3]
             .into_iter()
+            .cloned()
             .collect_tuple()
             .unwrap();
+
+        let present_descriptor_sets = descriptor_sets[3..].to_vec();
 
         // update descriptor sets
         let geometry_buffer_descriptor_info = [vk::DescriptorBufferInfo::default()
@@ -660,40 +671,40 @@ fn main() {
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .buffer_info(&work_buffer_2_descriptor_info);
 
-        // let output_image_descriptor_info = [vk::DescriptorImageInfo::default()
-        //     .image_view(image_view)
-        //     .image_layout(vk::ImageLayout::GENERAL)];
-        // let final_descriptor_image_write = vk::WriteDescriptorSet::default()
-        //     .dst_set(final_descriptor_set)
-        //     .dst_binding(1)
-        //     .descriptor_count(1)
-        //     .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-        //     .image_info(&output_image_descriptor_info);
-
-        // let final_descriptor_source_write = vk::WriteDescriptorSet::default()
-        //     .dst_set(final_descriptor_set)
-        //     .dst_binding(0)
-        //     .descriptor_count(1)
-        //     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-        //     .buffer_info(if SAMPLES_PER_PIXEL % 2 == 0 {
-        //         &work_buffer_1_descriptor_info
-        //     } else {
-        //         &work_buffer_2_descriptor_info
-        //     });
-
-        let descriptor_writes = [
+        let mut descriptor_writes = vec![
             world_descriptor_write_material,
             world_descriptor_write_geometry,
             work_descriptor_1_write_input,
             work_descriptor_1_write_output,
             work_descriptor_2_write_input,
             work_descriptor_2_write_output,
-            // final_descriptor_image_write,
-            // final_descriptor_source_write,
         ];
+        let present_image_desctiptor_infos: Vec<_> = present_image_views
+            .iter()
+            .map(|image_view| {
+                vk::DescriptorImageInfo::default()
+                    .image_view(*image_view)
+                    .image_layout(vk::ImageLayout::GENERAL)
+            })
+            .collect();
+
+        present_image_desctiptor_infos
+            .iter()
+            .enumerate()
+            .for_each(|(i, _)| {
+                descriptor_writes.push(
+                    vk::WriteDescriptorSet::default()
+                        .dst_set(present_descriptor_sets[i])
+                        .dst_binding(0)
+                        .descriptor_count(1)
+                        .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                        .image_info(&present_image_desctiptor_infos.as_slice()[i..i + 1]),
+                )
+            });
+
         vulkan_base
             .device
-            .update_descriptor_sets(&descriptor_writes, &[]);
+            .update_descriptor_sets(descriptor_writes.as_slice(), &[]);
 
         // initialize data
         initialize_gpu_resources(
@@ -767,10 +778,10 @@ fn main() {
         // vulkan_base.device.destroy_fence(fence, None);
         vulkan_base
             .device
-            .destroy_descriptor_set_layout(final_descriptor_set_layout, None);
+            .destroy_descriptor_set_layout(present_descriptor_set_layout, None);
         vulkan_base
             .device
-            .destroy_descriptor_set_layout(main_descriptor_set_layout, None);
+            .destroy_descriptor_set_layout(double_buffer_descriptor_set_layout, None);
         vulkan_base.device.destroy_pipeline(final_pipeline, None);
         vulkan_base.device.destroy_pipeline(main_pipeline, None);
         vulkan_base
@@ -782,7 +793,7 @@ fn main() {
         vulkan_base
             .device
             .destroy_pipeline_layout(main_pipeline_layout, None);
-         present_image_views
+        present_image_views
             .iter()
             .map(|view| vulkan_base.device.destroy_image_view(*view, None))
             .count();
