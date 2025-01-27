@@ -1,4 +1,4 @@
-use ash::vk;
+use ash::{khr::{swapchain, surface}, vk};
 
 pub struct VulkanBase {
     pub _entry: ash::Entry, // base DLL/SO
@@ -8,6 +8,8 @@ pub struct VulkanBase {
     pub queue: vk::Queue,
     pub command_pool: vk::CommandPool,
     pub fence: vk::Fence,
+    pub swapchain_loader: swapchain::Device,
+    pub surface_loader: surface::Instance,
 }
 
 impl VulkanBase {
@@ -63,8 +65,15 @@ impl VulkanBase {
             .push_next(&mut features_1_3)
             .features(features);
         instance.get_physical_device_features2(*physical_device, &mut features2);
+
+        // enable swapchain extension
+         let device_extensions = [
+            swapchain::NAME.as_ptr()
+        ];
+
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(std::slice::from_ref(&queue_create_info))
+            .enabled_extension_names(&device_extensions)
             .push_next(&mut features2);
         let device = instance
             .create_device(*physical_device, &device_create_info, None)
@@ -74,7 +83,7 @@ impl VulkanBase {
         (device, queue)
     }
 
-    pub unsafe fn new() -> Self {
+    pub unsafe fn new(instance_extensions: &Vec<String>) -> Self {
         // Get DLL/SO
         let _entry = ash::Entry::load().unwrap();
 
@@ -84,7 +93,8 @@ impl VulkanBase {
             .application_version(0)
             .engine_name(c"No engine")
             .api_version(vk::API_VERSION_1_3);
-        let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
+        let instance_extensions: Vec<_> = instance_extensions.iter().map(|f| f.as_ptr() as *const i8).collect();
+        let create_info = vk::InstanceCreateInfo::default().application_info(&app_info).enabled_extension_names(&instance_extensions.as_slice());
         let instance = _entry.create_instance(&create_info, None).unwrap();
 
         // get physical device
@@ -103,6 +113,10 @@ impl VulkanBase {
         let fence = device.create_fence(&fence_create_info, None).unwrap();
 
 
+        // extension loaders
+        let surface_loader = surface::Instance::new(&_entry, &instance);
+        let swapchain_loader = swapchain::Device::new(&instance, &device);
+
         Self {
             _entry,
             instance,
@@ -111,6 +125,8 @@ impl VulkanBase {
             queue,
             command_pool,
             fence,
+            swapchain_loader,
+            surface_loader,
         }
     }
 

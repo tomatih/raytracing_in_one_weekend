@@ -1,4 +1,4 @@
-// #![allow(dead_code, unused_variables, unused_mut, unused_imports)]
+#![allow(dead_code, unused_variables, unused_mut, unused_imports)]
 
 // project modules
 mod common;
@@ -22,6 +22,7 @@ use rand::Rng;
 #[cfg(debug_assertions)]
 use renderdoc::{RenderDoc, V130};
 
+use sdl3::surface;
 // Vulkan inports
 use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
 use vulkan_helper::{load_shader, Buffer};
@@ -208,7 +209,7 @@ unsafe fn render_sample(
         .device
         .cmd_dispatch(command_buffer, image_width / 8, image_height / 8, 1);
 
-   vulkan_base.submit_command_buffer(command_buffer, None);
+    vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
 unsafe fn finalize_render(
@@ -299,7 +300,7 @@ unsafe fn finalize_render(
         .device
         .cmd_copy_image_to_buffer2(command_buffer, &copy_image_to_buffer_info);
 
-   vulkan_base.submit_command_buffer(command_buffer, None);
+    vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
 fn main() {
@@ -330,9 +331,20 @@ fn main() {
     let world = randon_scene();
     println!("Generating world end");
 
+    // SDL3 init
+    let sdl_context = sdl3::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+    let window = video_subsystem
+        .window("Raytravcing in a weekend", IMAGE_WIDTH, IMAGE_HEIGHT)
+        .position_centered()
+        .vulkan()
+        .build()
+        .unwrap();
+
     let buffer_content = unsafe {
         // init vulkan
-        let vulkan_base = VulkanBase::new();
+        let sdl_extensions = window.vulkan_instance_extensions().unwrap();
+        let vulkan_base = VulkanBase::new(&sdl_extensions);
 
         // init renderdoc
         #[cfg(debug_assertions)]
@@ -341,6 +353,67 @@ fn main() {
         if let Some(x) = rd.as_mut() {
             x.start_frame_capture(std::ptr::null(), std::ptr::null());
         }
+
+        // create surface
+        let surface = window
+            .vulkan_create_surface(vulkan_base.instance.handle())
+            .unwrap();
+
+        // get surface information for swapchain creation
+        let surface_format = vulkan_base
+            .surface_loader
+            .get_physical_device_surface_formats(vulkan_base.physical_device, surface)
+            .unwrap()[0]; // TODO: make some sort of optimal format finder
+        let surface_capabilities = vulkan_base
+            .surface_loader
+            .get_physical_device_surface_capabilities(vulkan_base.physical_device, surface)
+            .unwrap();
+
+        let desired_image_count = 3.clamp(
+            surface_capabilities.min_image_count,
+            surface_capabilities.max_image_count,
+        );
+        let surface_resolution = vk::Extent2D {
+            width: IMAGE_WIDTH,
+            height: IMAGE_HEIGHT,
+        };
+        //TODO: could this be a problem if it isn't identity??
+        let pre_transform = if surface_capabilities
+            .supported_transforms
+            .contains(vk::SurfaceTransformFlagsKHR::IDENTITY)
+        {
+            vk::SurfaceTransformFlagsKHR::IDENTITY
+        } else {
+            surface_capabilities.current_transform
+        };
+        let supported_present_modes = vulkan_base
+            .surface_loader
+            .get_physical_device_surface_present_modes(vulkan_base.physical_device, surface)
+            .unwrap();
+        let present_mode = supported_present_modes
+            .iter()
+            .cloned()
+            .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
+            .unwrap_or(vk::PresentModeKHR::FIFO);
+
+        // create swapchain
+        let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
+            .surface(surface)
+            .min_image_count(desired_image_count)
+            .image_color_space(surface_format.color_space)
+            .image_format(surface_format.format)
+            .image_extent(surface_resolution)
+            .image_usage(vk::ImageUsageFlags::STORAGE)
+            .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .pre_transform(pre_transform)
+            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+            .present_mode(present_mode)
+            .clipped(true)
+            .image_array_layers(1);
+        let swapchain = vulkan_base
+            .swapchain_loader
+            .create_swapchain(&swapchain_create_info, None)
+            .unwrap();
 
         // load shaders
         let main_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/ray_trace.comp.spv"));
@@ -655,12 +728,7 @@ fn main() {
             .update_descriptor_sets(&descriptor_writes, &[]);
 
         // initialize data
-        initialize_gpu_resources(
-            &vulkan_base,
-            &working_buffer_1,
-            &working_buffer_2,
-            &image,
-        );
+        initialize_gpu_resources(&vulkan_base, &working_buffer_1, &working_buffer_2, &image);
 
         // prepare push constant
         let mut push_constants = ray_trace_shader::PushConstantData {
@@ -711,7 +779,10 @@ fn main() {
             IMAGE_HEIGHT,
         );
         // wai on last submission
-        vulkan_base.device.wait_for_fences(&[vulkan_base.fence], true, u64::MAX).unwrap();
+        vulkan_base
+            .device
+            .wait_for_fences(&[vulkan_base.fence], true, u64::MAX)
+            .unwrap();
 
         let image_data = output_buffer.get_buffer_data();
 
@@ -753,6 +824,8 @@ fn main() {
         vulkan_base
             .device
             .destroy_shader_module(main_shader_module, None);
+        vulkan_base.swapchain_loader.destroy_swapchain(swapchain, None);
+        vulkan_base.surface_loader.destroy_surface(surface, None);
 
         image_data
     };
