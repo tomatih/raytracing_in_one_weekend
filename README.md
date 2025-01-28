@@ -31,6 +31,6 @@ To speed up rendering process porting the code to Vulkan compute shaders
 - [x] Single sample rendering to the window
 - [x] Dynamic camera
 - [ ] Window resizing
-- [ ] Temporal multi sample
+- [x] Temporal multi sample
 - [ ] Detection and support for hardware accelerated RT (rayquery)
 - [ ] (?) Sofwfare implementation of BVH as a fallback

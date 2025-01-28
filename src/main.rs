@@ -206,7 +206,7 @@ fn main() {
         assert!(IMAGE_WIDTH % 8 == 0); // needed for shader
     }
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
-    const SAMPLES_PER_PIXEL: i32 = 500;
+    const SAMPLES_PER_PIXEL: u32 = 500;
 
     // camera
     let mut camera = ray_trace_shader::Camera {
@@ -623,8 +623,8 @@ fn main() {
             initial_seed: [0, 0, 0, 0].into(),
             camera,
         };
-        let final_push_constant = finalize_shader::PushConstantData {
-            sample_count: 1, // SAMPLES_PER_PIXEL as u32,
+        let mut final_push_constant = finalize_shader::PushConstantData {
+            sample_count: 0,
         };
 
         // setup semaphores
@@ -641,7 +641,9 @@ fn main() {
         let mut event_pump = sdl_context.event_pump().unwrap();
         let mut last_fame_time = std::time::Instant::now();
         let mut last_mouse_position = None;
+        let mut current_sample: u32 = 0;
         'running: loop {
+            let mut reconstruct = false;
             // handle events
             for event in event_pump.poll_iter() {
                 match event {
@@ -710,7 +712,11 @@ fn main() {
                     .x
                     .clamp(0.0001, f64::consts::PI as f32 - 0.0001);
 
-                camera.look_angles.x %= f64::consts::TAU as f32
+                camera.look_angles.x %= f64::consts::TAU as f32;
+
+                if delta_x != 0.0 && delta_y != 0.0 {
+                    reconstruct = true;
+                }
             }
 
             if to_move.magnitude2() != 0.0 {
@@ -721,14 +727,13 @@ fn main() {
                     to_move.x * camera.look_angles.y.sin() + to_move.z * camera.look_angles.y.cos(),
                 );
                 camera.look_from += to_move;
+                reconstruct = true;
             }
 
-            // update random seeds
+            // update push constants
             for i in 0..4 {
                 push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
             }
-
-            // update camera
             push_constants.camera = camera;
 
             // wait on last command to finish
@@ -755,50 +760,97 @@ fn main() {
             // start command buffer
             let command_buffer = vulkan_base.start_command_buffer();
 
-            // render sample
-            vulkan_base.device.cmd_bind_pipeline(
-                command_buffer,
-                vk::PipelineBindPoint::COMPUTE,
-                main_pipeline,
-            );
-            vulkan_base.device.cmd_bind_descriptor_sets(
-                command_buffer,
-                vk::PipelineBindPoint::COMPUTE,
-                main_pipeline_layout,
-                0,
-                &[work_descriptor_set_1, world_descriptor_set],
-                &[],
-            );
-            vulkan_base.device.cmd_push_constants(
-                command_buffer,
-                main_pipeline_layout,
-                vk::ShaderStageFlags::COMPUTE,
-                0,
-                core::slice::from_raw_parts(
-                    (&push_constants as *const ray_trace_shader::PushConstantData) as *const u8,
-                    core::mem::size_of::<ray_trace_shader::PushConstantData>(),
-                ),
-            );
-            vulkan_base
-                .device
-                .cmd_dispatch(command_buffer, IMAGE_WIDTH / 8, IMAGE_HEIGHT / 8, 1);
+            // reset samples
+            if reconstruct {
+                current_sample = 0;
 
-            // make sure it finishes
-            let inter_shader_buffer_barriers = [vk::BufferMemoryBarrier2::default()
-                .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                .dst_access_mask(vk::AccessFlags2::SHADER_READ)
-                .buffer(working_buffer_2.handle)
-                .offset(0)
-                .size(working_buffer_2.size)];
-            let inter_shader_dependency =
-                vk::DependencyInfo::default().buffer_memory_barriers(&inter_shader_buffer_barriers);
-            vulkan_base
-                .device
-                .cmd_pipeline_barrier2(command_buffer, &inter_shader_dependency);
+                vulkan_base.device.cmd_fill_buffer(
+                    command_buffer,
+                    working_buffer_1.handle,
+                    0,
+                    working_buffer_1.size,
+                    0,
+                );
 
-            // generate image from current sample
+                let cleaning_buffer_barriers = [vk::BufferMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+                    .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                    .dst_access_mask(vk::AccessFlags2::SHADER_READ)
+                    .buffer(working_buffer_1.handle)
+                    .offset(0)
+                    .size(working_buffer_1.size)];
+                let cleaning_shader_dependency =
+                    vk::DependencyInfo::default().buffer_memory_barriers(&cleaning_buffer_barriers);
+                vulkan_base
+                    .device
+                    .cmd_pipeline_barrier2(command_buffer, &cleaning_shader_dependency);
+            }
+
+            // choose buffers
+            let current_work_set = if current_sample % 2 == 0 {
+                work_descriptor_set_1
+            } else {
+                work_descriptor_set_2
+            };
+            let dest_buffer = if current_sample % 2 == 0 {
+                &working_buffer_2
+            } else {
+                &working_buffer_1
+            };
+            final_push_constant.sample_count = (current_sample + 1).min(SAMPLES_PER_PIXEL) as u32;
+
+            // render next sample
+            if current_sample < SAMPLES_PER_PIXEL {
+                vulkan_base.device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::COMPUTE,
+                    main_pipeline,
+                );
+                vulkan_base.device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::COMPUTE,
+                    main_pipeline_layout,
+                    0,
+                    &[current_work_set, world_descriptor_set],
+                    &[],
+                );
+                vulkan_base.device.cmd_push_constants(
+                    command_buffer,
+                    main_pipeline_layout,
+                    vk::ShaderStageFlags::COMPUTE,
+                    0,
+                    core::slice::from_raw_parts(
+                        (&push_constants as *const ray_trace_shader::PushConstantData) as *const u8,
+                        core::mem::size_of::<ray_trace_shader::PushConstantData>(),
+                    ),
+                );
+                vulkan_base.device.cmd_dispatch(
+                    command_buffer,
+                    IMAGE_WIDTH / 8,
+                    IMAGE_HEIGHT / 8,
+                    1,
+                );
+
+                // make sure it finishes
+                let inter_shader_buffer_barriers = [vk::BufferMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                    .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                    .dst_access_mask(vk::AccessFlags2::SHADER_READ)
+                    .buffer(dest_buffer.handle)
+                    .offset(0)
+                    .size(dest_buffer.size)];
+                let inter_shader_dependency = vk::DependencyInfo::default()
+                    .buffer_memory_barriers(&inter_shader_buffer_barriers);
+                vulkan_base
+                    .device
+                    .cmd_pipeline_barrier2(command_buffer, &inter_shader_dependency);
+
+                current_sample += 1;
+            }
+
+            // generate image from current samples
             vulkan_base.device.cmd_bind_pipeline(
                 command_buffer,
                 vk::PipelineBindPoint::COMPUTE,
@@ -809,7 +861,7 @@ fn main() {
                 vk::PipelineBindPoint::COMPUTE,
                 final_pipeline_layout,
                 0,
-                &[work_descriptor_set_1, final_descriptor_set],
+                &[current_work_set, final_descriptor_set],
                 &[],
             );
             vulkan_base.device.cmd_push_constants(
