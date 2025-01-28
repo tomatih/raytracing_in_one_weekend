@@ -217,7 +217,7 @@ fn main() {
         apeture: 0.1,
         focus_distance: 10.0,
     };
-    let movement_speed = 0.1;
+    let movement_speed = 1.0;
 
     // generate initial rays
     let mut rng = rand::thread_rng();
@@ -641,6 +641,7 @@ fn main() {
             .unwrap();
 
         let mut event_pump = sdl_context.event_pump().unwrap();
+        let mut last_fame_time = std::time::Instant::now();
         'running: loop {
             // handle events
             for event in event_pump.poll_iter() {
@@ -670,11 +671,20 @@ fn main() {
             if keyboard_state.is_scancode_pressed(Scancode::S) {
                 to_move += Vec3::new(1.0, 0.0, 0.0);
             }
+            if keyboard_state.is_scancode_pressed(Scancode::Space){
+                 to_move += Vec3::new(0.0, 1.0, 0.0);
+            }
+            if keyboard_state.is_scancode_pressed(Scancode::LShift){
+                 to_move -= Vec3::new(0.0, 1.0, 0.0);
+            }
 
-            // to_move = to_move % 2.0;
-            println!("movement: {:?}", to_move);
+            // calculate dt
+            let dt = last_fame_time.elapsed();
+            last_fame_time = std::time::Instant::now();
+
+            
             if to_move.magnitude2() != 0.0 {
-                let to_move = to_move.normalize() * movement_speed;
+                let to_move = to_move.normalize() * movement_speed * dt.as_secs_f32();
                 camera.look_from += to_move;
                 camera.look_at += to_move;
             }
