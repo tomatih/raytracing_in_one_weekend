@@ -29,7 +29,7 @@ To speed up rendering process porting the code to Vulkan compute shaders
 - [x] Move to multiple smaller command buffers for better compatibility
 - [x] Setup SDL3 windowing
 - [x] Single sample rendering to the window
-- [ ] Dynamic camera
+- [x] Dynamic camera
 - [ ] Window resizing
 - [ ] Temporal multi sample
 - [ ] Detection and support for hardware accelerated RT (rayquery)

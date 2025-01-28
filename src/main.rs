@@ -8,10 +8,10 @@ mod shaders;
 mod vulkan_helper;
 mod world;
 
-use core::f32;
+use core::{f32, f64};
 
 use ash::vk;
-use cgmath::{InnerSpace, Vector4};
+use cgmath::{InnerSpace, Rad, Vector2, Vector4};
 use common::Color;
 // external imports
 use itertools::Itertools;
@@ -23,6 +23,7 @@ use renderdoc::{RenderDoc, V130};
 
 use sdl3::event::Event;
 use sdl3::keyboard::{Keycode, Scancode};
+use sdl3::mouse::MouseButton;
 use sdl3::surface;
 // Vulkan inports
 use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
@@ -209,15 +210,12 @@ fn main() {
 
     // camera
     let mut camera = ray_trace_shader::Camera {
-        look_from: Point3::new(13.0, 2.0, 3.0),
-        look_at: Point3::new(0.0, 0.0, 0.0),
-        up: Vec3::unit_y(),
-        vfov: 20.0 * f32::consts::PI / 180.0,
+        look_from: Point3::new(13.0, 2.0, 3.0).into(),
+        look_angles: Vector2::new(1.5708, 0.0),
         aspect_ratio: ASPECT_RATIO,
-        apeture: 0.1,
-        focus_distance: 10.0,
     };
-    let movement_speed = 1.0;
+    let movement_speed = 2.5;
+    let mouse_sensitivity = 2.5;
 
     // generate initial rays
     let mut rng = rand::thread_rng();
@@ -642,6 +640,7 @@ fn main() {
 
         let mut event_pump = sdl_context.event_pump().unwrap();
         let mut last_fame_time = std::time::Instant::now();
+        let mut last_mouse_position = None;
         'running: loop {
             // handle events
             for event in event_pump.poll_iter() {
@@ -653,9 +652,24 @@ fn main() {
                     } => {
                         break 'running;
                     }
+                    Event::MouseButtonDown {
+                        mouse_btn: MouseButton::Left,
+                        x,
+                        y,
+                        ..
+                    } => {
+                        last_mouse_position = Some(Vector2::new(x, y));
+                    }
+                    Event::MouseButtonUp {
+                        mouse_btn: MouseButton::Left,
+                        ..
+                    } => {
+                        last_mouse_position = None;
+                    }
                     _ => {}
                 }
             }
+            // handle keyboar movement
             let mut to_move = Vec3::new(0.0, 0.0, 0.0);
             let keyboard_state = event_pump.keyboard_state();
 
@@ -671,22 +685,42 @@ fn main() {
             if keyboard_state.is_scancode_pressed(Scancode::S) {
                 to_move += Vec3::new(1.0, 0.0, 0.0);
             }
-            if keyboard_state.is_scancode_pressed(Scancode::Space){
-                 to_move += Vec3::new(0.0, 1.0, 0.0);
+            if keyboard_state.is_scancode_pressed(Scancode::Space) {
+                to_move += Vec3::new(0.0, 1.0, 0.0);
             }
-            if keyboard_state.is_scancode_pressed(Scancode::LShift){
-                 to_move -= Vec3::new(0.0, 1.0, 0.0);
+            if keyboard_state.is_scancode_pressed(Scancode::LShift) {
+                to_move -= Vec3::new(0.0, 1.0, 0.0);
             }
 
             // calculate dt
-            let dt = last_fame_time.elapsed();
+            let dt = last_fame_time.elapsed().as_secs_f32();
             last_fame_time = std::time::Instant::now();
 
-            
+            if let Some(last_pos) = last_mouse_position {
+                let mouse_status = event_pump.mouse_state();
+                let delta_x = (last_pos.x - mouse_status.x()) / IMAGE_WIDTH as f32;
+                let delta_y = (last_pos.y - mouse_status.y()) / IMAGE_HEIGHT as f32;
+
+                camera.look_angles.y -= delta_x * mouse_sensitivity * dt;
+                camera.look_angles.x += delta_y * mouse_sensitivity * dt;
+
+                // restric vertical rotation
+                camera.look_angles.x = camera
+                    .look_angles
+                    .x
+                    .clamp(0.0001, f64::consts::PI as f32 - 0.0001);
+
+                camera.look_angles.x %= f64::consts::TAU as f32
+            }
+
             if to_move.magnitude2() != 0.0 {
-                let to_move = to_move.normalize() * movement_speed * dt.as_secs_f32();
+                let to_move = to_move.normalize() * movement_speed * dt;
+                let to_move = Vec3::new(
+                    to_move.x * camera.look_angles.y.cos() - to_move.z * camera.look_angles.y.sin(),
+                    to_move.y,
+                    to_move.x * camera.look_angles.y.sin() + to_move.z * camera.look_angles.y.cos(),
+                );
                 camera.look_from += to_move;
-                camera.look_at += to_move;
             }
 
             // update random seeds
