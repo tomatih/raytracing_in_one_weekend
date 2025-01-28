@@ -838,7 +838,7 @@ fn main() {
             );
             vulkan_base.device.cmd_push_constants(
                 command_buffer,
-                final_pipeline_layout,
+                main_pipeline_layout,
                 vk::ShaderStageFlags::COMPUTE,
                 0,
                 core::slice::from_raw_parts(
