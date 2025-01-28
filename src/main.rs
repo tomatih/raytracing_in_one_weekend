@@ -22,7 +22,7 @@ use rand::Rng;
 use renderdoc::{RenderDoc, V130};
 
 use sdl3::event::Event;
-use sdl3::keyboard::Keycode;
+use sdl3::keyboard::{Keycode, Scancode};
 use sdl3::surface;
 // Vulkan inports
 use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
@@ -208,12 +208,16 @@ fn main() {
     const SAMPLES_PER_PIXEL: i32 = 500;
 
     // camera
-    let look_from = Point3::new(13.0, 2.0, 3.0);
-    // let look_from = Point3::new(10.0, 0.0, 0.0);
-    let look_at = Point3::new(0.0, 0.0, 0.0);
-    let up = Vec3::unit_y();
-    let distance_to_focus = 10.0;
-    let aperture = 0.1;
+    let mut camera = ray_trace_shader::Camera {
+        look_from: Point3::new(13.0, 2.0, 3.0),
+        look_at: Point3::new(0.0, 0.0, 0.0),
+        up: Vec3::unit_y(),
+        vfov: 20.0 * f32::consts::PI / 180.0,
+        aspect_ratio: ASPECT_RATIO,
+        apeture: 0.1,
+        focus_distance: 10.0,
+    };
+    let movement_speed = 0.1;
 
     // generate initial rays
     let mut rng = rand::thread_rng();
@@ -619,15 +623,7 @@ fn main() {
         let mut push_constants = ray_trace_shader::PushConstantData {
             sphere_amount: (world_gpu.geometry.count as u32).into(),
             initial_seed: [0, 0, 0, 0].into(),
-            camera: ray_trace_shader::Camera {
-                look_from,
-                look_at,
-                up,
-                vfov: 20.0 * f32::consts::PI / 180.0,
-                aspect_ratio: ASPECT_RATIO,
-                apeture: aperture,
-                focus_distance: distance_to_focus,
-            },
+            camera,
         };
         let final_push_constant = finalize_shader::PushConstantData {
             sample_count: 1, // SAMPLES_PER_PIXEL as u32,
@@ -659,11 +655,37 @@ fn main() {
                     _ => {}
                 }
             }
+            let mut to_move = Vec3::new(0.0, 0.0, 0.0);
+            let keyboard_state = event_pump.keyboard_state();
+
+            if keyboard_state.is_scancode_pressed(Scancode::A) {
+                to_move += Vec3::new(0.0, 0.0, 1.0);
+            }
+            if keyboard_state.is_scancode_pressed(Scancode::D) {
+                to_move -= Vec3::new(0.0, 0.0, 1.0);
+            }
+            if keyboard_state.is_scancode_pressed(Scancode::W) {
+                to_move -= Vec3::new(1.0, 0.0, 0.0);
+            }
+            if keyboard_state.is_scancode_pressed(Scancode::S) {
+                to_move += Vec3::new(1.0, 0.0, 0.0);
+            }
+
+            // to_move = to_move % 2.0;
+            println!("movement: {:?}", to_move);
+            if to_move.magnitude2() != 0.0 {
+                let to_move = to_move.normalize() * movement_speed;
+                camera.look_from += to_move;
+                camera.look_at += to_move;
+            }
 
             // update random seeds
             for i in 0..4 {
                 push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
             }
+
+            // update camera
+            push_constants.camera = camera;
 
             // wait on last command to finish
             vulkan_base
