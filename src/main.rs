@@ -254,10 +254,19 @@ fn main() {
             .unwrap();
 
         // get surface information for swapchain creation
-        let surface_format = vulkan_base
+        let surface_formats = vulkan_base
             .surface_loader
             .get_physical_device_surface_formats(vulkan_base.physical_device, surface)
-            .unwrap()[0]; // TODO: make some sort of optimal format finder
+            .unwrap();
+
+        let surface_format = surface_formats
+            .iter()
+            .filter(|surface_format| {
+                surface_format.format == vk::Format::R8G8B8A8_SRGB
+                    || surface_format.format == vk::Format::B8G8R8A8_SRGB
+            })
+            .collect::<Vec<_>>()[0];
+
         let surface_capabilities = vulkan_base
             .surface_loader
             .get_physical_device_surface_capabilities(vulkan_base.physical_device, surface)
@@ -353,7 +362,7 @@ fn main() {
         };
         let image_create_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
-            format: vk::Format::R8G8B8A8_UNORM,
+            format: vk::Format::R8G8B8A8_SRGB,
             extent: image_extent,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
             mip_levels: 1,
@@ -623,9 +632,7 @@ fn main() {
             initial_seed: [0, 0, 0, 0].into(),
             camera,
         };
-        let mut final_push_constant = finalize_shader::PushConstantData {
-            sample_count: 0,
-        };
+        let mut final_push_constant = finalize_shader::PushConstantData { sample_count: 0 };
 
         // setup semaphores
         let semaphore_create_info = vk::SemaphoreCreateInfo::default();
