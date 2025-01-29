@@ -262,8 +262,8 @@ fn main() {
         let surface_format = surface_formats
             .iter()
             .filter(|surface_format| {
-                surface_format.format == vk::Format::R8G8B8A8_SRGB
-                    || surface_format.format == vk::Format::B8G8R8A8_SRGB
+                surface_format.format == vk::Format::R8G8B8A8_UNORM
+                    || surface_format.format == vk::Format::B8G8R8A8_UNORM
             })
             .collect::<Vec<_>>()[0];
 
@@ -298,11 +298,6 @@ fn main() {
             .surface_loader
             .get_physical_device_surface_present_modes(vulkan_base.physical_device, surface)
             .unwrap();
-        let present_mode = supported_present_modes
-            .iter()
-            .cloned()
-            .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
-            .unwrap_or(vk::PresentModeKHR::FIFO);
 
         // create swapchain
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
@@ -315,7 +310,7 @@ fn main() {
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .pre_transform(pre_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-            .present_mode(present_mode)
+            .present_mode(vk::PresentModeKHR::FIFO)
             .clipped(true)
             .image_array_layers(1);
         let swapchain = vulkan_base
@@ -362,7 +357,7 @@ fn main() {
         };
         let image_create_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
-            format: vk::Format::R8G8B8A8_SRGB,
+            format: vk::Format::R8G8B8A8_UNORM,
             extent: image_extent,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
             mip_levels: 1,

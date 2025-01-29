@@ -34,3 +34,8 @@ To speed up rendering process porting the code to Vulkan compute shaders
 - [x] Temporal multi sample
 - [ ] Detection and support for hardware accelerated RT (rayquery)
 - [ ] (?) Sofwfare implementation of BVH as a fallback
+
+## Extra
+
+The app comes with a special "power saver" feature. If run on an Intel iGPU it will close if no camera movement occurs for about 5 minutes.
+
