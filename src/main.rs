@@ -240,13 +240,7 @@ fn main() {
         let sdl_extensions = window.vulkan_instance_extensions().unwrap();
         let vulkan_base = VulkanBase::new(&sdl_extensions);
 
-        // init renderdoc
-        #[cfg(debug_assertions)]
-        let mut rd: Option<RenderDoc<V130>> = RenderDoc::new().ok();
-        #[cfg(debug_assertions)]
-        if let Some(x) = rd.as_mut() {
-            x.start_frame_capture(std::ptr::null(), std::ptr::null());
-        }
+        
 
         // create surface
         let surface = window
@@ -1048,10 +1042,7 @@ fn main() {
                 .unwrap();
         }
 
-        #[cfg(debug_assertions)]
-        if let Some(x) = rd.as_mut() {
-            x.end_frame_capture(std::ptr::null(), std::ptr::null());
-        }
+        
 
         // vulkan cleanup
         vulkan_base.device.device_wait_idle().unwrap();

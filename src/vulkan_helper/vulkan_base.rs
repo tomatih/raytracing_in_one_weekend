@@ -1,4 +1,5 @@
 use ash::{khr::{swapchain, surface}, vk};
+use renderdoc::{RenderDoc, V130};
 
 pub struct VulkanBase {
     pub _entry: ash::Entry, // base DLL/SO
@@ -10,6 +11,8 @@ pub struct VulkanBase {
     pub fence: vk::Fence,
     pub swapchain_loader: swapchain::Device,
     pub surface_loader: surface::Instance,
+    #[cfg(debug_assertions)]
+    rd: Option<RenderDoc<V130>>,
 }
 
 impl VulkanBase {
@@ -112,10 +115,17 @@ impl VulkanBase {
             .flags(vk::FenceCreateFlags::SIGNALED);
         let fence = device.create_fence(&fence_create_info, None).unwrap();
 
-
         // extension loaders
         let surface_loader = surface::Instance::new(&_entry, &instance);
         let swapchain_loader = swapchain::Device::new(&instance, &device);
+
+        // init renderdoc
+        #[cfg(debug_assertions)]
+        let mut rd: Option<RenderDoc<V130>> = RenderDoc::new().ok();
+        #[cfg(debug_assertions)]
+        if let Some(x) = rd.as_mut() {
+            x.start_frame_capture(std::ptr::null(), std::ptr::null());
+        }
 
         Self {
             _entry,
@@ -127,6 +137,9 @@ impl VulkanBase {
             fence,
             swapchain_loader,
             surface_loader,
+            #[cfg(debug_assertions)]
+            rd
+
         }
     }
 
@@ -173,6 +186,12 @@ impl VulkanBase {
 
 impl Drop for VulkanBase {
     fn drop(&mut self) {
+
+        #[cfg(debug_assertions)]
+        if let Some(x) = self.rd.as_mut() {
+            x.end_frame_capture(std::ptr::null(), std::ptr::null());
+        }
+
         unsafe {
             // make sure nothing is being used
             self.device.device_wait_idle().unwrap();
