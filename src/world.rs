@@ -17,6 +17,8 @@ pub struct WorldCpu {
 pub struct WorldGpu<'a> {
     pub geometry: Buffer<'a, shaders::ray_trace_shader::Sphere>,
     pub materials: Buffer<'a, Vector4<f32>>,
+    pub set_layout: vk::DescriptorSetLayout,
+    pub descriptor_set: vk::DescriptorSet,
 }
 
 impl<'a> WorldCpu {
@@ -47,6 +49,7 @@ impl<'a> WorldCpu {
     pub unsafe fn upload(
         self,
         vulkan_base: &VulkanBase,
+        descriptor_pool: vk::DescriptorPool,
         allocator: &'a Allocator,
     ) -> WorldGpu<'a> {
         // main buffers
@@ -119,19 +122,100 @@ impl<'a> WorldCpu {
             .device
             .cmd_copy_buffer2(command_buffer, &material_copy_info);
 
-        let fence_create_info =
-            vk::FenceCreateInfo::default();
-        let fence = vulkan_base.device.create_fence(&fence_create_info, None).unwrap();
+        let fence_create_info = vk::FenceCreateInfo::default();
+        let fence = vulkan_base
+            .device
+            .create_fence(&fence_create_info, None)
+            .unwrap();
 
         vulkan_base.submit_command_buffer(command_buffer, Some(fence));
 
         // wait so that staging buffers don't get dropped
-        vulkan_base.device.wait_for_fences(&[fence], true, u64::MAX).unwrap();
+        vulkan_base
+            .device
+            .wait_for_fences(&[fence], true, u64::MAX)
+            .unwrap();
         vulkan_base.device.destroy_fence(fence, None);
 
-        WorldGpu {
-            geometry,
-            materials,
+        WorldGpu::new(geometry, materials, descriptor_pool, vulkan_base)
+    }
+}
+
+impl<'a> WorldGpu<'a> {
+    pub unsafe fn new(
+        geo_buffer: Buffer<'a, shaders::ray_trace_shader::Sphere>,
+        mat_buffer: Buffer<'a, Vector4<f32>>,
+        descriptor_pool: vk::DescriptorPool,
+        vulkan_base: &VulkanBase,
+    ) -> Self {
+        // create descriptor layout
+        let buffer_binding_0 = vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+        let buffer_binding_1 = vk::DescriptorSetLayoutBinding::default()
+            .binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+        let descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1];
+        let descriptor_set_layout_info =
+            vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_set_layout_bindings);
+        let set_layout = vulkan_base
+            .device
+            .create_descriptor_set_layout(&descriptor_set_layout_info, None)
+            .unwrap();
+
+        // create descriptor set
+        let set_layouts = [set_layout];
+        let descriptor_allocate_info = vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(&set_layouts);
+        let descriptor_set = vulkan_base
+            .device
+            .allocate_descriptor_sets(&descriptor_allocate_info)
+            .unwrap()[0];
+
+        // update descriptor set
+        let geometry_buffer_descriptor_info = [vk::DescriptorBufferInfo::default()
+            .buffer(geo_buffer.handle)
+            .range(geo_buffer.size)];
+        let world_descriptor_write_geometry = vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .dst_binding(0)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&geometry_buffer_descriptor_info);
+        let material_buffer_descriptor_info = [vk::DescriptorBufferInfo::default()
+            .buffer(mat_buffer.handle)
+            .range(mat_buffer.size)];
+        let world_descriptor_write_material = vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .dst_binding(1)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&material_buffer_descriptor_info);
+
+        let descriptor_writes = [
+            world_descriptor_write_geometry,
+            world_descriptor_write_material,
+        ];
+        vulkan_base
+            .device
+            .update_descriptor_sets(&descriptor_writes, &[]);
+
+        Self {
+            geometry: geo_buffer,
+            materials: mat_buffer,
+            set_layout,
+            descriptor_set,
         }
+    }
+
+    pub unsafe fn cleanup(self, vulkan_base: &VulkanBase) {
+        vulkan_base
+            .device
+            .destroy_descriptor_set_layout(self.set_layout, None);
     }
 }

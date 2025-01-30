@@ -326,7 +326,7 @@ fn main() {
         );
 
         // gpu world
-        let world_gpu = world.upload(&vulkan_base, &allocator);
+        let world_gpu = world.upload(&vulkan_base, descriptor_pool, &allocator);
 
         // descriptor set layouts
         let buffer_binding_0 = vk::DescriptorSetLayoutBinding::default()
@@ -425,18 +425,12 @@ fn main() {
         let desctiptor_sets_layouts = [
             main_descriptor_set_layout,
             main_descriptor_set_layout,
-            main_descriptor_set_layout,
             final_descriptor_set_layout,
         ];
         let descriptor_allocate_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(descriptor_pool)
             .set_layouts(&desctiptor_sets_layouts);
-        let (
-            world_descriptor_set,
-            work_descriptor_set_1,
-            work_descriptor_set_2,
-            final_descriptor_set,
-        ) = vulkan_base
+        let (work_descriptor_set_1, work_descriptor_set_2, final_descriptor_set) = vulkan_base
             .device
             .allocate_descriptor_sets(&descriptor_allocate_info)
             .unwrap()
@@ -445,25 +439,6 @@ fn main() {
             .unwrap();
 
         // update descriptor sets
-        let geometry_buffer_descriptor_info = [vk::DescriptorBufferInfo::default()
-            .buffer(world_gpu.geometry.handle)
-            .range(world_gpu.geometry.size)];
-        let world_descriptor_write_geometry = vk::WriteDescriptorSet::default()
-            .dst_set(world_descriptor_set)
-            .dst_binding(0)
-            .descriptor_count(1)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .buffer_info(&geometry_buffer_descriptor_info);
-        let material_buffer_descriptor_info = [vk::DescriptorBufferInfo::default()
-            .buffer(world_gpu.materials.handle)
-            .range(world_gpu.materials.size)];
-        let world_descriptor_write_material = vk::WriteDescriptorSet::default()
-            .dst_set(world_descriptor_set)
-            .dst_binding(1)
-            .descriptor_count(1)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .buffer_info(&material_buffer_descriptor_info);
-
         let work_buffer_1_descriptor_info = [vk::DescriptorBufferInfo::default()
             .buffer(working_buffer_1.handle)
             .range(working_buffer_1.size)];
@@ -507,8 +482,6 @@ fn main() {
             .image_info(&output_image_descriptor_info);
 
         let descriptor_writes = [
-            world_descriptor_write_material,
-            world_descriptor_write_geometry,
             work_descriptor_1_write_input,
             work_descriptor_1_write_output,
             work_descriptor_2_write_input,
@@ -689,7 +662,7 @@ fn main() {
                     vk::PipelineBindPoint::COMPUTE,
                     main_pipeline_layout,
                     0,
-                    &[current_work_set, world_descriptor_set],
+                    &[current_work_set, world_gpu.descriptor_set],
                     &[],
                 );
                 vulkan_base.device.cmd_push_constants(
@@ -892,6 +865,7 @@ fn main() {
 
         // vulkan cleanup
         vulkan_base.device.device_wait_idle().unwrap();
+        world_gpu.cleanup(vulkan_base);
 
         allocator.destroy_image(image, &mut image_allocation);
 
