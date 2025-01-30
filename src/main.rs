@@ -7,6 +7,7 @@ mod objects;
 mod shaders;
 mod vulkan_helper;
 mod world;
+mod windowing_manager;
 
 use core::{f32, f64};
 
@@ -28,6 +29,7 @@ use sdl3::surface;
 // Vulkan inports
 use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
 use vulkan_helper::{load_shader, Buffer};
+use windowing_manager::WindowManager;
 // own imports
 use crate::common::{Point3, Vec3};
 use crate::objects::Sphere;
@@ -225,92 +227,10 @@ fn main() {
     let world = randon_scene();
     println!("Generating world end");
 
-    // SDL3 init
-    let sdl_context = sdl3::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
-    let window = video_subsystem
-        .window("Raytravcing in a weekend", IMAGE_WIDTH, IMAGE_HEIGHT)
-        .position_centered()
-        .vulkan()
-        .build()
-        .unwrap();
 
     unsafe {
-        // init vulkan
-        let sdl_extensions = window.vulkan_instance_extensions().unwrap();
-        let vulkan_base = VulkanBase::new(&sdl_extensions);
-
-        
-
-        // create surface
-        let surface = window
-            .vulkan_create_surface(vulkan_base.instance.handle())
-            .unwrap();
-
-        // get surface information for swapchain creation
-        let surface_formats = vulkan_base
-            .surface_loader
-            .get_physical_device_surface_formats(vulkan_base.physical_device, surface)
-            .unwrap();
-
-        let surface_format = surface_formats
-            .iter()
-            .filter(|surface_format| {
-                surface_format.format == vk::Format::R8G8B8A8_UNORM
-                    || surface_format.format == vk::Format::B8G8R8A8_UNORM
-            })
-            .collect::<Vec<_>>()[0];
-
-        let surface_capabilities = vulkan_base
-            .surface_loader
-            .get_physical_device_surface_capabilities(vulkan_base.physical_device, surface)
-            .unwrap();
-
-        let desired_image_count = 3;
-        let desired_image_count = if surface_capabilities.max_image_count == 0 {
-            desired_image_count.max(surface_capabilities.min_image_count)
-        } else {
-            desired_image_count.clamp(
-                surface_capabilities.min_image_count,
-                surface_capabilities.max_image_count,
-            )
-        };
-        let surface_resolution = vk::Extent2D {
-            width: IMAGE_WIDTH,
-            height: IMAGE_HEIGHT,
-        };
-        //TODO: could this be a problem if it isn't identity??
-        let pre_transform = if surface_capabilities
-            .supported_transforms
-            .contains(vk::SurfaceTransformFlagsKHR::IDENTITY)
-        {
-            vk::SurfaceTransformFlagsKHR::IDENTITY
-        } else {
-            surface_capabilities.current_transform
-        };
-        let supported_present_modes = vulkan_base
-            .surface_loader
-            .get_physical_device_surface_present_modes(vulkan_base.physical_device, surface)
-            .unwrap();
-
-        // create swapchain
-        let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
-            .surface(surface)
-            .min_image_count(desired_image_count)
-            .image_color_space(surface_format.color_space)
-            .image_format(surface_format.format)
-            .image_extent(surface_resolution)
-            .image_usage(vk::ImageUsageFlags::TRANSFER_DST)
-            .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .pre_transform(pre_transform)
-            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-            .present_mode(vk::PresentModeKHR::FIFO)
-            .clipped(true)
-            .image_array_layers(1);
-        let swapchain = vulkan_base
-            .swapchain_loader
-            .create_swapchain(&swapchain_create_info, None)
-            .unwrap();
+        let windowing_manager = WindowManager::new(IMAGE_WIDTH, IMAGE_HEIGHT);
+        let vulkan_base = &windowing_manager.vulkan_base;
 
         // load shaders
         let main_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/ray_trace.comp.spv"));
@@ -385,12 +305,6 @@ fn main() {
         let image_view = vulkan_base
             .device
             .create_image_view(&image_view_create_info, None)
-            .unwrap();
-
-        // present images
-        let present_images = vulkan_base
-            .swapchain_loader
-            .get_swapchain_images(swapchain)
             .unwrap();
 
         // working buffers
@@ -612,7 +526,7 @@ fn main() {
             &working_buffer_1,
             &working_buffer_2,
             &image,
-            &present_images,
+            &windowing_manager.present_images,
         );
 
         // prepare push constant
@@ -623,18 +537,8 @@ fn main() {
         };
         let mut final_push_constant = finalize_shader::PushConstantData { sample_count: 0 };
 
-        // setup semaphores
-        let semaphore_create_info = vk::SemaphoreCreateInfo::default();
-        let image_acquire_semaphore = vulkan_base
-            .device
-            .create_semaphore(&semaphore_create_info, None)
-            .unwrap();
-        let rendering_completed_semaphore = vulkan_base
-            .device
-            .create_semaphore(&semaphore_create_info, None)
-            .unwrap();
 
-        let mut event_pump = sdl_context.event_pump().unwrap();
+        let mut event_pump = windowing_manager.sdl_context.event_pump().unwrap();
         let mut last_fame_time = std::time::Instant::now();
         let mut last_mouse_position = None;
         let mut current_sample: u32 = 0;
@@ -743,12 +647,12 @@ fn main() {
                 .unwrap();
 
             // get image
-            let (image_index, _) = vulkan_base
+            let (image_index, _) = windowing_manager
                 .swapchain_loader
                 .acquire_next_image(
-                    swapchain,
+                    windowing_manager.swapchain,
                     u64::MAX,
-                    image_acquire_semaphore,
+                    windowing_manager.image_acquire_semaphore,
                     vk::Fence::null(),
                 )
                 .unwrap();
@@ -903,7 +807,7 @@ fn main() {
                     .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .src_queue_family_index(0)
                     .dst_queue_family_index(0)
-                    .image(present_images[image_index as usize])
+                    .image(windowing_manager.present_images[image_index as usize])
                     .subresource_range(
                         vk::ImageSubresourceRange::default()
                             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -952,7 +856,7 @@ fn main() {
             let blit_image_info = vk::BlitImageInfo2::default()
                 .src_image(image)
                 .src_image_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                .dst_image(present_images[image_index as usize])
+                .dst_image(windowing_manager.present_images[image_index as usize])
                 .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .regions(&copy_regions)
                 .filter(vk::Filter::NEAREST);
@@ -971,7 +875,7 @@ fn main() {
                     .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
                     .src_queue_family_index(0)
                     .dst_queue_family_index(0)
-                    .image(present_images[image_index as usize])
+                    .image(windowing_manager.present_images[image_index as usize])
                     .subresource_range(
                         vk::ImageSubresourceRange::default()
                             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -1014,10 +918,10 @@ fn main() {
             let submit_infos =
                 [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
             let wait_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
-                .semaphore(image_acquire_semaphore)
+                .semaphore(windowing_manager.image_acquire_semaphore)
                 .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
             let signal_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
-                .semaphore(rendering_completed_semaphore)
+                .semaphore(windowing_manager.rendering_completed_semaphore)
                 .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
             let to_submit = [vk::SubmitInfo2::default()
                 .command_buffer_infos(&submit_infos)
@@ -1029,14 +933,14 @@ fn main() {
                 .unwrap();
 
             // present image
-            let wait_semaphores = [rendering_completed_semaphore];
-            let swapchains = [swapchain];
+            let wait_semaphores = [windowing_manager.rendering_completed_semaphore];
+            let swapchains = [windowing_manager.swapchain];
             let imaage_indices = [image_index];
             let present_info = vk::PresentInfoKHR::default()
                 .wait_semaphores(&wait_semaphores)
                 .swapchains(&swapchains)
                 .image_indices(&imaage_indices);
-            vulkan_base
+            windowing_manager
                 .swapchain_loader
                 .queue_present(vulkan_base.queue, &present_info)
                 .unwrap();
@@ -1049,12 +953,7 @@ fn main() {
 
         allocator.destroy_image(image, &mut image_allocation);
 
-        vulkan_base
-            .device
-            .destroy_semaphore(rendering_completed_semaphore, None);
-        vulkan_base
-            .device
-            .destroy_semaphore(image_acquire_semaphore, None);
+        
         vulkan_base
             .device
             .destroy_descriptor_set_layout(final_descriptor_set_layout, None);
@@ -1082,9 +981,6 @@ fn main() {
         vulkan_base
             .device
             .destroy_shader_module(main_shader_module, None);
-        vulkan_base
-            .swapchain_loader
-            .destroy_swapchain(swapchain, None);
-        vulkan_base.surface_loader.destroy_surface(surface, None);
+
     }
 }

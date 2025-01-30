@@ -2,15 +2,13 @@ use ash::{khr::{swapchain, surface}, vk};
 use renderdoc::{RenderDoc, V130};
 
 pub struct VulkanBase {
-    pub _entry: ash::Entry, // base DLL/SO
+    pub entry: ash::Entry, // base DLL/SO
     pub instance: ash::Instance,
     pub physical_device: vk::PhysicalDevice,
     pub device: ash::Device,
     pub queue: vk::Queue,
     pub command_pool: vk::CommandPool,
     pub fence: vk::Fence,
-    pub swapchain_loader: swapchain::Device,
-    pub surface_loader: surface::Instance,
     #[cfg(debug_assertions)]
     rd: Option<RenderDoc<V130>>,
 }
@@ -88,7 +86,7 @@ impl VulkanBase {
 
     pub unsafe fn new(instance_extensions: &Vec<String>) -> Self {
         // Get DLL/SO
-        let _entry = ash::Entry::load().unwrap();
+        let entry = ash::Entry::load().unwrap();
 
         // get instance// Get Instance
         let app_info = vk::ApplicationInfo::default()
@@ -98,7 +96,7 @@ impl VulkanBase {
             .api_version(vk::API_VERSION_1_3);
         let instance_extensions: Vec<_> = instance_extensions.iter().map(|f| f.as_ptr() as *const i8).collect();
         let create_info = vk::InstanceCreateInfo::default().application_info(&app_info).enabled_extension_names(&instance_extensions.as_slice());
-        let instance = _entry.create_instance(&create_info, None).unwrap();
+        let instance = entry.create_instance(&create_info, None).unwrap();
 
         // get physical device
         let physical_device = Self::get_physical_device(&instance);
@@ -115,9 +113,7 @@ impl VulkanBase {
             .flags(vk::FenceCreateFlags::SIGNALED);
         let fence = device.create_fence(&fence_create_info, None).unwrap();
 
-        // extension loaders
-        let surface_loader = surface::Instance::new(&_entry, &instance);
-        let swapchain_loader = swapchain::Device::new(&instance, &device);
+       
 
         // init renderdoc
         #[cfg(debug_assertions)]
@@ -128,15 +124,13 @@ impl VulkanBase {
         }
 
         Self {
-            _entry,
+            entry,
             instance,
             physical_device,
             device,
             queue,
             command_pool,
             fence,
-            swapchain_loader,
-            surface_loader,
             #[cfg(debug_assertions)]
             rd
 
