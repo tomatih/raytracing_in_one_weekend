@@ -6,8 +6,8 @@ mod materials;
 mod objects;
 mod shaders;
 mod vulkan_helper;
-mod world;
 mod windowing_manager;
+mod world;
 
 use core::{f32, f64};
 
@@ -226,7 +226,6 @@ fn main() {
     println!("Generating world start");
     let world = randon_scene();
     println!("Generating world end");
-
 
     unsafe {
         let windowing_manager = WindowManager::new(IMAGE_WIDTH, IMAGE_HEIGHT);
@@ -537,7 +536,6 @@ fn main() {
         };
         let mut final_push_constant = finalize_shader::PushConstantData { sample_count: 0 };
 
-
         let mut event_pump = windowing_manager.sdl_context.event_pump().unwrap();
         let mut last_fame_time = std::time::Instant::now();
         let mut last_mouse_position = None;
@@ -636,29 +634,8 @@ fn main() {
             }
             push_constants.camera = camera;
 
-            // wait on last command to finish
-            vulkan_base
-                .device
-                .wait_for_fences(&[vulkan_base.fence], true, u64::MAX)
-                .unwrap();
-            vulkan_base
-                .device
-                .reset_fences(&[vulkan_base.fence])
-                .unwrap();
-
-            // get image
-            let (image_index, _) = windowing_manager
-                .swapchain_loader
-                .acquire_next_image(
-                    windowing_manager.swapchain,
-                    u64::MAX,
-                    windowing_manager.image_acquire_semaphore,
-                    vk::Fence::null(),
-                )
-                .unwrap();
-
-            // start command buffer
-            let command_buffer = vulkan_base.start_command_buffer();
+            // start new frame
+            let (command_buffer, present_image, image_index) = windowing_manager.start_frame();
 
             // reset samples
             if reconstruct {
@@ -807,7 +784,7 @@ fn main() {
                     .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .src_queue_family_index(0)
                     .dst_queue_family_index(0)
-                    .image(windowing_manager.present_images[image_index as usize])
+                    .image(present_image)
                     .subresource_range(
                         vk::ImageSubresourceRange::default()
                             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -856,7 +833,7 @@ fn main() {
             let blit_image_info = vk::BlitImageInfo2::default()
                 .src_image(image)
                 .src_image_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                .dst_image(windowing_manager.present_images[image_index as usize])
+                .dst_image(present_image)
                 .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .regions(&copy_regions)
                 .filter(vk::Filter::NEAREST);
@@ -875,7 +852,7 @@ fn main() {
                     .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
                     .src_queue_family_index(0)
                     .dst_queue_family_index(0)
-                    .image(windowing_manager.present_images[image_index as usize])
+                    .image(present_image)
                     .subresource_range(
                         vk::ImageSubresourceRange::default()
                             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -909,51 +886,15 @@ fn main() {
                 .device
                 .cmd_pipeline_barrier2(command_buffer, &present_dependency);
 
-            // submit command buffer
-            vulkan_base
-                .device
-                .end_command_buffer(command_buffer)
-                .unwrap();
-
-            let submit_infos =
-                [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
-            let wait_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
-                .semaphore(windowing_manager.image_acquire_semaphore)
-                .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
-            let signal_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
-                .semaphore(windowing_manager.rendering_completed_semaphore)
-                .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
-            let to_submit = [vk::SubmitInfo2::default()
-                .command_buffer_infos(&submit_infos)
-                .signal_semaphore_infos(&signal_semaphore_infos)
-                .wait_semaphore_infos(&wait_semaphore_infos)];
-            vulkan_base
-                .device
-                .queue_submit2(vulkan_base.queue, &to_submit, vulkan_base.fence)
-                .unwrap();
-
-            // present image
-            let wait_semaphores = [windowing_manager.rendering_completed_semaphore];
-            let swapchains = [windowing_manager.swapchain];
-            let imaage_indices = [image_index];
-            let present_info = vk::PresentInfoKHR::default()
-                .wait_semaphores(&wait_semaphores)
-                .swapchains(&swapchains)
-                .image_indices(&imaage_indices);
-            windowing_manager
-                .swapchain_loader
-                .queue_present(vulkan_base.queue, &present_info)
-                .unwrap();
+            // finish frame
+            windowing_manager.finish_frame(command_buffer, image_index);
         }
-
-        
 
         // vulkan cleanup
         vulkan_base.device.device_wait_idle().unwrap();
 
         allocator.destroy_image(image, &mut image_allocation);
 
-        
         vulkan_base
             .device
             .destroy_descriptor_set_layout(final_descriptor_set_layout, None);
@@ -981,6 +922,5 @@ fn main() {
         vulkan_base
             .device
             .destroy_shader_module(main_shader_module, None);
-
     }
 }

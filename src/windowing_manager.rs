@@ -3,6 +3,7 @@ use ash::{
     vk::{self, SurfaceKHR, SwapchainKHR},
 };
 use sdl3::{video::Window, Sdl, VideoSubsystem};
+use vulkano::command_buffer;
 
 use crate::vulkan_helper::VulkanBase;
 
@@ -154,6 +155,76 @@ impl WindowManager {
         swapchain_loader
             .create_swapchain(&swapchain_create_info, None)
             .unwrap()
+    }
+
+    pub unsafe fn start_frame(&self) -> (vk::CommandBuffer, vk::Image, u32) {
+        // wait on last command to finish
+        self.vulkan_base
+            .device
+            .wait_for_fences(&[self.vulkan_base.fence], true, u64::MAX)
+            .unwrap();
+        self.vulkan_base
+            .device
+            .reset_fences(&[self.vulkan_base.fence])
+            .unwrap();
+
+        // get next present image index
+        let (image_index, _) = self
+            .swapchain_loader
+            .acquire_next_image(
+                self.swapchain,
+                u64::MAX,
+                self.image_acquire_semaphore,
+                vk::Fence::null(),
+            )
+            .unwrap();
+
+        // start command buffer
+        //TODO: make this resetable instead of reallocating new ones
+        let command_buffer = self.vulkan_base.start_command_buffer();
+
+        (
+            command_buffer,
+            self.present_images[image_index as usize],
+            image_index,
+        )
+    }
+
+    pub unsafe fn finish_frame(&self, command_buffer: vk::CommandBuffer, image_index: u32) {
+        // end command buffer
+        self.vulkan_base
+            .device
+            .end_command_buffer(command_buffer)
+            .unwrap();
+
+        // submit for rendering
+        let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
+        let wait_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
+            .semaphore(self.image_acquire_semaphore)
+            .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
+        let signal_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
+            .semaphore(self.rendering_completed_semaphore)
+            .stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)];
+        let to_submit = [vk::SubmitInfo2::default()
+            .command_buffer_infos(&submit_infos)
+            .signal_semaphore_infos(&signal_semaphore_infos)
+            .wait_semaphore_infos(&wait_semaphore_infos)];
+        self.vulkan_base
+            .device
+            .queue_submit2(self.vulkan_base.queue, &to_submit, self.vulkan_base.fence)
+            .unwrap();
+
+        // submit for presenting
+        let wait_semaphores = [self.rendering_completed_semaphore];
+        let swapchains = [self.swapchain];
+        let image_indices = [image_index];
+        let present_info = vk::PresentInfoKHR::default()
+            .wait_semaphores(&wait_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(&image_indices);
+        self.swapchain_loader
+            .queue_present(self.vulkan_base.queue, &present_info)
+            .unwrap();
     }
 }
 
