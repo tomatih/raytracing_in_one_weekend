@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_variables, unused_mut, unused_imports)]
+// #![allow(dead_code, unused_variables, unused_mut, unused_imports)]
 
 // project modules
 mod common;
@@ -12,20 +12,17 @@ mod world;
 use core::{f32, f64};
 
 use ash::vk;
-use cgmath::{InnerSpace, Rad, Vector2, Vector4};
+use cgmath::{InnerSpace, Vector2, Vector4};
 use common::Color;
 // external imports
 use itertools::Itertools;
 use materials::Material;
 use rand::Rng;
 
-#[cfg(debug_assertions)]
-use renderdoc::{RenderDoc, V130};
-
 use sdl3::event::Event;
 use sdl3::keyboard::{Keycode, Scancode};
 use sdl3::mouse::MouseButton;
-use sdl3::surface;
+
 // Vulkan inports
 use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
 use vulkan_helper::{load_shader, Buffer};
@@ -176,7 +173,7 @@ unsafe fn create_render_target(
         usage: MemoryUsage::AutoPreferDevice,
         ..Default::default()
     };
-    let (image, mut image_allocation) = allocator
+    let (image, image_allocation) = allocator
         .create_image(&image_create_info, &image_allocation_info)
         .unwrap();
     let image_view_create_info = vk::ImageViewCreateInfo {
@@ -298,7 +295,7 @@ unsafe fn initialize_gpu_resources(
     working_buffer_1: &Buffer<Vector4<f32>>,
     working_buffer_2: &Buffer<Vector4<f32>>,
     image: &vk::Image,
-    present_images: &Vec<vk::Image>,
+    present_images: &[vk::Image],
 ) {
     // start the command buffer
     let command_buffer = vulkan_base.start_command_buffer();
@@ -349,7 +346,7 @@ unsafe fn initialize_gpu_resources(
         vulkan_base,
         &command_buffer,
         &[],
-        &image_init_barriers.as_slice(),
+        image_init_barriers.as_slice(),
     );
 
     vulkan_base.submit_command_buffer(command_buffer, None);
@@ -379,8 +376,7 @@ unsafe fn dispatch_pipeline<T>(
     pipeline_layout: &vk::PipelineLayout,
     descriptor_sets: &[vk::DescriptorSet],
     push_constant: &T,
-    width: u32,
-    height: u32,
+    render_size: vk::Extent2D,
 ) {
     vulkan_base.device.cmd_bind_pipeline(
         *command_buffer,
@@ -405,9 +401,12 @@ unsafe fn dispatch_pipeline<T>(
             core::mem::size_of::<T>(),
         ),
     );
-    vulkan_base
-        .device
-        .cmd_dispatch(*command_buffer, width / 8, height / 8, 1);
+    vulkan_base.device.cmd_dispatch(
+        *command_buffer,
+        render_size.width / 8,
+        render_size.height / 8,
+        1,
+    );
 }
 
 unsafe fn submit_dependency(
@@ -438,8 +437,8 @@ fn main() {
 
     // camera
     let mut camera = ray_trace_shader::Camera {
-        look_from: Point3::new(13.0, 2.0, 3.0).into(),
-        look_angles: Vector2::new(1.5708, 0.0),
+        look_from: Point3::new(13.0, 2.0, 3.0),
+        look_angles: Vector2::new(f32::consts::FRAC_PI_2, 0.0),
         aspect_ratio: ASPECT_RATIO,
     };
     let movement_speed = 2.5;
@@ -459,9 +458,9 @@ fn main() {
 
         // load shaders
         let main_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/ray_trace.comp.spv"));
-        let main_shader_module = load_shader(&vulkan_base, main_shader_bytes);
+        let main_shader_module = load_shader(vulkan_base, main_shader_bytes);
         let final_shader_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/finalize.comp.spv"));
-        let final_shader_module = load_shader(&vulkan_base, final_shader_bytes);
+        let final_shader_module = load_shader(vulkan_base, final_shader_bytes);
 
         //VMA setup
         let allocator_create_info = vk_mem::AllocatorCreateInfo::new(
@@ -498,7 +497,7 @@ fn main() {
         );
 
         // gpu world
-        let world_gpu = world.upload(&vulkan_base, descriptor_pool, &allocator);
+        let world_gpu = world.upload(vulkan_base, descriptor_pool, &allocator);
 
         // descriptor set layouts
         let (main_descriptor_set_layout, final_descriptor_set_layout) =
@@ -579,7 +578,7 @@ fn main() {
 
         // initialize data
         initialize_gpu_resources(
-            &vulkan_base,
+            vulkan_base,
             &working_buffer_1,
             &working_buffer_2,
             &image,
@@ -728,7 +727,7 @@ fn main() {
             } else {
                 (work_descriptor_set_2, &working_buffer_1)
             };
-            final_push_constant.sample_count = (current_sample + 1).min(SAMPLES_PER_PIXEL) as u32;
+            final_push_constant.sample_count = (current_sample + 1).min(SAMPLES_PER_PIXEL);
 
             // render next sample
             if current_sample < SAMPLES_PER_PIXEL {
@@ -739,8 +738,7 @@ fn main() {
                     &main_pipeline_layout,
                     &[current_work_set, world_gpu.descriptor_set],
                     &push_constants,
-                    IMAGE_WIDTH,
-                    IMAGE_HEIGHT,
+                    windowing_manager.swapchain_extent,
                 );
 
                 // make sure it finishes
@@ -769,8 +767,7 @@ fn main() {
                 &final_pipeline_layout,
                 &[current_work_set, final_descriptor_set],
                 &final_push_constant,
-                IMAGE_WIDTH,
-                IMAGE_HEIGHT,
+                windowing_manager.swapchain_extent,
             );
 
             // prepare for image blit

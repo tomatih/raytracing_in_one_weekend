@@ -1,4 +1,5 @@
-use ash::{khr::{swapchain, surface}, vk};
+use ash::{khr::swapchain, vk};
+#[cfg(debug_assertions)]
 use renderdoc::{RenderDoc, V130};
 
 pub struct VulkanBase {
@@ -68,9 +69,7 @@ impl VulkanBase {
         instance.get_physical_device_features2(*physical_device, &mut features2);
 
         // enable swapchain extension
-         let device_extensions = [
-            swapchain::NAME.as_ptr()
-        ];
+        let device_extensions = [swapchain::NAME.as_ptr()];
 
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(std::slice::from_ref(&queue_create_info))
@@ -84,7 +83,7 @@ impl VulkanBase {
         (device, queue)
     }
 
-    pub unsafe fn new(instance_extensions: &Vec<String>) -> Self {
+    pub unsafe fn new(instance_extensions: &[String]) -> Self {
         // Get DLL/SO
         let entry = ash::Entry::load().unwrap();
 
@@ -94,8 +93,13 @@ impl VulkanBase {
             .application_version(0)
             .engine_name(c"No engine")
             .api_version(vk::API_VERSION_1_3);
-        let instance_extensions: Vec<_> = instance_extensions.iter().map(|f| f.as_ptr() as *const i8).collect();
-        let create_info = vk::InstanceCreateInfo::default().application_info(&app_info).enabled_extension_names(&instance_extensions.as_slice());
+        let instance_extensions: Vec<_> = instance_extensions
+            .iter()
+            .map(|f| f.as_ptr() as *const i8)
+            .collect();
+        let create_info = vk::InstanceCreateInfo::default()
+            .application_info(&app_info)
+            .enabled_extension_names(instance_extensions.as_slice());
         let instance = entry.create_instance(&create_info, None).unwrap();
 
         // get physical device
@@ -109,11 +113,8 @@ impl VulkanBase {
             .unwrap();
 
         let fence_create_info =
-            vk::FenceCreateInfo::default()
-            .flags(vk::FenceCreateFlags::SIGNALED);
+            vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
         let fence = device.create_fence(&fence_create_info, None).unwrap();
-
-       
 
         // init renderdoc
         #[cfg(debug_assertions)]
@@ -132,8 +133,7 @@ impl VulkanBase {
             command_pool,
             fence,
             #[cfg(debug_assertions)]
-            rd
-
+            rd,
         }
     }
 
@@ -156,7 +156,11 @@ impl VulkanBase {
         command_buffer
     }
 
-    pub unsafe fn submit_command_buffer(&self, command_buffer: vk::CommandBuffer, fence: Option<vk::Fence>) {
+    pub unsafe fn submit_command_buffer(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        fence: Option<vk::Fence>,
+    ) {
         self.device.end_command_buffer(command_buffer).unwrap();
 
         // submit prepare
@@ -164,7 +168,7 @@ impl VulkanBase {
         let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
 
         // make sure the previous one has finished
-        if fence.is_none(){
+        if fence.is_none() {
             self.device
                 .wait_for_fences(&[self.fence], true, u64::MAX)
                 .unwrap();
@@ -180,7 +184,6 @@ impl VulkanBase {
 
 impl Drop for VulkanBase {
     fn drop(&mut self) {
-
         #[cfg(debug_assertions)]
         if let Some(x) = self.rd.as_mut() {
             x.end_frame_capture(std::ptr::null(), std::ptr::null());

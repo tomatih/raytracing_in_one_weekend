@@ -2,16 +2,14 @@ use ash::{
     khr::{surface, swapchain},
     vk::{self, SurfaceKHR, SwapchainKHR},
 };
-use sdl3::{video::Window, Sdl, VideoSubsystem};
-use vulkano::command_buffer;
+use sdl3::{video::Window, Sdl};
 
 use crate::vulkan_helper::VulkanBase;
 
 pub struct WindowManager {
     // SDL3 members
     pub sdl_context: Sdl,
-    pub video_subsystem: VideoSubsystem,
-    pub window: Window,
+    pub _window: Window, // need to keep window alive even if unaccessed
     // base vulkan members
     pub vulkan_base: VulkanBase,
     pub swapchain_loader: swapchain::Device,
@@ -31,7 +29,7 @@ impl WindowManager {
         // init SDL3
         let sdl_context = sdl3::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
-        let window = video_subsystem
+        let _window = video_subsystem
             .window("Raytravcing in a weekend", window_width, window_height)
             .position_centered()
             .vulkan()
@@ -39,7 +37,7 @@ impl WindowManager {
             .unwrap();
 
         // init vulkan
-        let sdl_extensions = window.vulkan_instance_extensions().unwrap();
+        let sdl_extensions = _window.vulkan_instance_extensions().unwrap();
         let vulkan_base = VulkanBase::new(&sdl_extensions);
 
         // extension loaders
@@ -47,7 +45,7 @@ impl WindowManager {
         let swapchain_loader = swapchain::Device::new(&vulkan_base.instance, &vulkan_base.device);
 
         // surface init
-        let surface = window
+        let surface = _window
             .vulkan_create_surface(vulkan_base.instance.handle())
             .unwrap();
 
@@ -78,8 +76,7 @@ impl WindowManager {
 
         Self {
             sdl_context,
-            video_subsystem,
-            window,
+            _window,
             vulkan_base,
             swapchain_loader,
             surface_loader,

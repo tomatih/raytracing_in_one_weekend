@@ -14,6 +14,7 @@ pub struct WorldCpu {
     materials: Vec<Material>,
 }
 
+#[allow(unused)] // this holds GPU resources not necesserliy used by the CPU
 pub struct WorldGpu<'a> {
     pub geometry: Buffer<'a, shaders::ray_trace_shader::Sphere>,
     pub materials: Buffer<'a, Vector4<f32>>,
