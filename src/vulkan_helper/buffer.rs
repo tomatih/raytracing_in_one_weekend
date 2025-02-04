@@ -42,18 +42,6 @@ impl<'a, T> Buffer<'a, T> {
         std::ptr::copy_nonoverlapping(data.as_ptr(), buff_mem_map as *mut T, data.len());
         self.allocator.unmap_memory(&mut self.memory);
     }
-
-    pub unsafe fn get_buffer_data(&mut self) -> Vec<T> {
-        let mut buff_data = Vec::new();
-        buff_data.reserve_exact(self.count);
-
-        let buff_mem_map = self.allocator.map_memory(&mut self.memory).unwrap();
-        std::ptr::copy_nonoverlapping(buff_mem_map as *const T, buff_data.as_mut_ptr(), self.count);
-        self.allocator.unmap_memory(&mut self.memory);
-        buff_data.set_len(self.count);
-
-        buff_data
-    }
 }
 
 impl<T> Drop for Buffer<'_, T> {
