@@ -1,4 +1,6 @@
-use ash::vk::{self, BufferUsageFlags};
+use ash::vk::{
+    self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR, AccelerationStructureBuildRangeInfoKHR, AccelerationStructureCreateFlagsKHR, AccelerationStructureGeometryAabbsDataKHR, AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryKHR, AccelerationStructureTypeKHR, BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR, DeviceSize, GeometryFlagsKHR, GeometryTypeKHR
+};
 use cgmath::Vector4;
 use vk_mem::{AllocationCreateInfo, Allocator};
 
@@ -49,6 +51,54 @@ impl<'a> WorldCpu {
         vulkan_base: &VulkanBase,
         allocator: &'a Allocator,
     ) -> WorldGpu<'a> {
+        // start the command buffer
+        let command_buffer = vulkan_base.start_command_buffer();
+
+        // RT
+        let acceleration_loder = ash::khr::acceleration_structure::Device::new(
+            &vulkan_base.instance,
+            &vulkan_base.device,
+        );
+
+
+        let aabb_data = AccelerationStructureGeometryAabbsDataKHR::default()
+            .data(data)
+            .stride(size_of::<AabbPositionsKHR>() as DeviceSize);
+
+        let geometry = AccelerationStructureGeometryDataKHR{
+            aabbs: aabb_data
+        };
+
+        let geometries = [
+            AccelerationStructureGeometryKHR::default()
+                .geometry_type(GeometryTypeKHR::AABBS)
+                .geometry(geometry),
+        ];
+
+        let infos = [
+            AccelerationStructureBuildGeometryInfoKHR::default()
+                .ty(AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+                .flags(BuildAccelerationStructureFlagsKHR::PREFER_FAST_BUILD)
+                .mode(BuildAccelerationStructureModeKHR::BUILD)
+                .dst_acceleration_structure(dst_acceleration_structure)
+                .geometries(&geometries)
+                .scratch_data(scratch_data),
+        ];
+
+        let build_range = [
+            AccelerationStructureBuildRangeInfoKHR::default()
+        ];
+
+        let build_range_infos = [
+            &build_range
+        ];
+
+        acceleration_loder.cmd_build_acceleration_structures(
+            command_buffer,
+            &infos,
+            &build_range_infos,
+        );
+
         // main buffers
         let main_buffers_allocation_info = AllocationCreateInfo {
             usage: vk_mem::MemoryUsage::AutoPreferDevice,
@@ -91,7 +141,7 @@ impl<'a> WorldCpu {
         materials_staging.fill_buffer(self.materials.into_iter().map(|m| m.into()).collect());
 
         // record upload command
-        let command_buffer = vulkan_base.start_command_buffer();
+        // let command_buffer = vulkan_base.start_command_buffer();
 
         // copy geometry
         let geometry_copy_regions = [vk::BufferCopy2::default()
