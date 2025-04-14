@@ -1,4 +1,5 @@
 use ash::{khr::swapchain, vk};
+use ash::vk::PhysicalDeviceAccelerationStructureFeaturesKHR;
 #[cfg(debug_assertions)]
 use renderdoc::{RenderDoc, V130};
 
@@ -10,8 +11,8 @@ pub struct VulkanBase {
     pub queue: vk::Queue,
     pub command_pool: vk::CommandPool,
     pub fence: vk::Fence,
-    #[cfg(debug_assertions)]
-    rd: Option<RenderDoc<V130>>,
+    // #[cfg(debug_assertions)]
+    // rd: Option<RenderDoc<V130>>,
 }
 
 impl VulkanBase {
@@ -80,6 +81,7 @@ impl VulkanBase {
             .queue_priorities(&[1.0]);
 
         // get support for everything up to 1.3 (guaranteed by selector)
+        let mut as_features = PhysicalDeviceAccelerationStructureFeaturesKHR::default();
         let mut features_1_3 = vk::PhysicalDeviceVulkan13Features::default();
         let mut features_1_2 = vk::PhysicalDeviceVulkan12Features::default();
         let mut features_1_1 = vk::PhysicalDeviceVulkan11Features::default();
@@ -88,6 +90,7 @@ impl VulkanBase {
             .push_next(&mut features_1_1)
             .push_next(&mut features_1_2)
             .push_next(&mut features_1_3)
+            .push_next(&mut as_features)
             .features(features);
         instance.get_physical_device_features2(*physical_device, &mut features2);
 
@@ -145,12 +148,12 @@ impl VulkanBase {
         let fence = device.create_fence(&fence_create_info, None).unwrap();
 
         // init renderdoc
-        #[cfg(debug_assertions)]
-        let mut rd: Option<RenderDoc<V130>> = RenderDoc::new().ok();
-        #[cfg(debug_assertions)]
-        if let Some(x) = rd.as_mut() {
-            x.start_frame_capture(std::ptr::null(), std::ptr::null());
-        }
+        // #[cfg(debug_assertions)]
+        // let mut rd: Option<RenderDoc<V130>> = RenderDoc::new().ok();
+        // #[cfg(debug_assertions)]
+        // if let Some(x) = rd.as_mut() {
+        //     x.start_frame_capture(std::ptr::null(), std::ptr::null());
+        // }
 
         Self {
             entry,
@@ -160,8 +163,8 @@ impl VulkanBase {
             queue,
             command_pool,
             fence,
-            #[cfg(debug_assertions)]
-            rd,
+            // #[cfg(debug_assertions)]
+            // rd,
         }
     }
 
@@ -212,10 +215,10 @@ impl VulkanBase {
 
 impl Drop for VulkanBase {
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
-        if let Some(x) = self.rd.as_mut() {
-            x.end_frame_capture(std::ptr::null(), std::ptr::null());
-        }
+        // #[cfg(debug_assertions)]
+        // if let Some(x) = self.rd.as_mut() {
+        //     x.end_frame_capture(std::ptr::null(), std::ptr::null());
+        // }
 
         unsafe {
             // make sure nothing is being used

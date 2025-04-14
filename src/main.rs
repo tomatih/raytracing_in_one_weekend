@@ -23,7 +23,7 @@ use rand::Rng;
 use renderdoc::{RenderDoc, V130};
 
 // Vulkan inports
-use vk_mem::{Alloc, AllocationCreateInfo, MemoryUsage};
+use vk_mem::{Alloc, AllocationCreateInfo, AllocatorCreateFlags, MemoryUsage};
 use vulkan_helper::{load_shader, Buffer};
 // own imports
 use crate::common::{Point3, Vec3};
@@ -349,11 +349,12 @@ fn main() {
         let final_shader_module = load_shader(&vulkan_base, final_shader_bytes);
 
         //VMA setup
-        let allocator_create_info = vk_mem::AllocatorCreateInfo::new(
+        let mut allocator_create_info = vk_mem::AllocatorCreateInfo::new(
             &vulkan_base.instance,
             &vulkan_base.device,
             vulkan_base.physical_device,
         );
+        allocator_create_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
         let allocator = vk_mem::Allocator::new(allocator_create_info).unwrap();
 
         // memory pools
