@@ -1,6 +1,4 @@
-use ash::vk::{
-    self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR, AccelerationStructureBuildRangeInfoKHR, AccelerationStructureCreateFlagsKHR, AccelerationStructureGeometryAabbsDataKHR, AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryKHR, AccelerationStructureTypeKHR, BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR, DeviceSize, GeometryFlagsKHR, GeometryTypeKHR
-};
+use ash::vk::{self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR, AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR, AccelerationStructureBuildTypeKHR, AccelerationStructureCreateFlagsKHR, AccelerationStructureCreateInfoKHR, AccelerationStructureGeometryAabbsDataKHR, AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryKHR, AccelerationStructureKHR, AccelerationStructureTypeKHR, AccessFlags2, BufferDeviceAddressInfo, BufferMemoryBarrier2, BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR, DependencyInfo, DeviceOrHostAddressConstKHR, DeviceOrHostAddressKHR, DeviceSize, GeometryFlagsKHR, GeometryTypeKHR, PipelineStageFlags2};
 use cgmath::Vector4;
 use vk_mem::{AllocationCreateInfo, Allocator};
 
@@ -58,15 +56,87 @@ impl<'a> WorldCpu {
         // start the command buffer
         let command_buffer = vulkan_base.start_command_buffer();
 
-        // RT
+        // buffer memory types
+        let staging_buffers_allocation_info = AllocationCreateInfo {
+            usage: vk_mem::MemoryUsage::Auto,
+            flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
+                | vk_mem::AllocationCreateFlags::MAPPED,
+            ..Default::default()
+        };
+        let main_buffers_allocation_info = AllocationCreateInfo {
+            usage: vk_mem::MemoryUsage::AutoPreferDevice,
+            ..Default::default()
+        };
+
+        // RT extension
         let acceleration_loder = ash::khr::acceleration_structure::Device::new(
             &vulkan_base.instance,
             &vulkan_base.device,
         );
 
+        // AS section
+        // will have a single TLAS and a single BLAS as there is only static geometry
+        // TODO: BLAS will have a node for each sphere wan an AABB around it
+        // start with 1 geomety with all spheres in it
+
+        // Geometry setup
+        let mut aabb_staging = Buffer::<AabbPositionsKHR>::new(
+            allocator,
+            BufferUsageFlags::TRANSFER_SRC,
+            self.geometry.len(),
+            staging_buffers_allocation_info.clone()
+        );
+        let aabb_data = self.geometry.iter().map(|sphere| {
+            AabbPositionsKHR::default()
+                .max_x(sphere.center.x + sphere.radius)
+                .max_y(sphere.center.y + sphere.radius)
+                .max_z(sphere.center.z + sphere.radius)
+                .min_x(sphere.center.x - sphere.radius)
+                .min_y(sphere.center.y - sphere.radius)
+                .min_z(sphere.center.z - sphere.radius)
+        }).collect();
+        aabb_staging.fill_buffer(aabb_data);
+
+        let aabb_buffer = Buffer::<AabbPositionsKHR>::new(
+            allocator,
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR | BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
+            self.geometry.len(),
+            main_buffers_allocation_info.clone()
+        );
+        let aabb_device_address_info= BufferDeviceAddressInfo::default()
+            .buffer(aabb_buffer.handle);
+        let aabb_device_address = vulkan_base.device.get_buffer_device_address(&aabb_device_address_info);
+
+
+        let aabb_copy_regions = [vk::BufferCopy2::default()
+            .src_offset(0)
+            .dst_offset(0)
+            .size(aabb_staging.size)];
+        let geometry_copy_info = vk::CopyBufferInfo2::default()
+            .src_buffer(aabb_staging.handle)
+            .dst_buffer(aabb_buffer.handle)
+            .regions(&aabb_copy_regions);
+        vulkan_base
+            .device
+            .cmd_copy_buffer2(command_buffer, &geometry_copy_info);
+
+        let blas_memory_barriers = [
+            BufferMemoryBarrier2::default()
+                .buffer(aabb_buffer.handle)
+                .size(aabb_buffer.size)
+                .src_access_mask(AccessFlags2::TRANSFER_WRITE)
+                .src_stage_mask(PipelineStageFlags2::TRANSFER)
+                .dst_access_mask(AccessFlags2::SHADER_READ)
+                .dst_stage_mask(PipelineStageFlags2::ACCELERATION_STRUCTURE_BUILD_KHR)
+        ];
+        let blas_dependency_info = DependencyInfo::default()
+            .buffer_memory_barriers(&blas_memory_barriers);
+        vulkan_base.device.cmd_pipeline_barrier2(command_buffer,&blas_dependency_info);
 
         let aabb_data = AccelerationStructureGeometryAabbsDataKHR::default()
-            .data(data)
+            .data(DeviceOrHostAddressConstKHR{
+                device_address: aabb_device_address
+            })
             .stride(size_of::<AabbPositionsKHR>() as DeviceSize);
 
         let geometry = AccelerationStructureGeometryDataKHR{
@@ -79,28 +149,66 @@ impl<'a> WorldCpu {
                 .geometry(geometry),
         ];
 
-        let infos = [
+        // BLAS info
+        let mut blas_infos = [
             AccelerationStructureBuildGeometryInfoKHR::default()
                 .ty(AccelerationStructureTypeKHR::BOTTOM_LEVEL)
-                .flags(BuildAccelerationStructureFlagsKHR::PREFER_FAST_BUILD)
+                .flags(BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
                 .mode(BuildAccelerationStructureModeKHR::BUILD)
-                .dst_acceleration_structure(dst_acceleration_structure)
                 .geometries(&geometries)
-                .scratch_data(scratch_data),
         ];
 
-        let build_range = [
+        let blas_build_range = [
             AccelerationStructureBuildRangeInfoKHR::default()
+                .primitive_offset(0)
+                .primitive_count(self.geometry.len() as u32)
         ];
 
-        let build_range_infos = [
-            &build_range
+        // BLAS range
+        let blas_build_range_infos = [
+            blas_build_range.as_slice()
         ];
+
+        // get BLAS size
+        let mut as_size = AccelerationStructureBuildSizesInfoKHR::default();
+        acceleration_loder.get_acceleration_structure_build_sizes(
+            AccelerationStructureBuildTypeKHR::DEVICE,
+            &blas_infos[0],
+            &[self.geometry.len() as u32],
+            &mut as_size
+        );
+
+        // make BLAS buffers
+        let blas_scratch = Buffer::<u8>::new(
+            allocator,
+            BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR,
+            as_size.build_scratch_size as usize,
+            main_buffers_allocation_info.clone()
+        );
+        let blas_scratch_address_info = BufferDeviceAddressInfo::default().buffer(blas_scratch.handle);
+        let blas_scratch_address = vulkan_base.device.get_buffer_device_address(&blas_scratch_address_info);
+        blas_infos[0].scratch_data = DeviceOrHostAddressKHR{device_address: blas_scratch_address};
+
+        let blas_buffer = Buffer::<u8>::new(
+            allocator,
+            BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR,
+            as_size.acceleration_structure_size as usize,
+            main_buffers_allocation_info.clone()
+        );
+        let blas_buffer_address_info = BufferDeviceAddressInfo::default().buffer(blas_buffer.handle);
+        let blas_buffer_address = vulkan_base.device.get_buffer_device_address(&blas_buffer_address_info);
+
+        let blas_create_info = AccelerationStructureCreateInfoKHR::default()
+            .buffer(blas_buffer.handle)
+            .size(as_size.acceleration_structure_size)
+            .ty(AccelerationStructureTypeKHR::BOTTOM_LEVEL);
+        let blas = acceleration_loder.create_acceleration_structure(&blas_create_info, None).unwrap();
+        blas_infos[0].dst_acceleration_structure = blas;
 
         acceleration_loder.cmd_build_acceleration_structures(
             command_buffer,
-            &infos,
-            &build_range_infos,
+            &blas_infos,
+            &blas_build_range_infos,
         );
 
         // main buffers
@@ -121,13 +229,7 @@ impl<'a> WorldCpu {
             main_buffers_allocation_info,
         );
 
-        // staging buffers
-        let staging_buffers_allocation_info = AllocationCreateInfo {
-            usage: vk_mem::MemoryUsage::Auto,
-            flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
-                | vk_mem::AllocationCreateFlags::MAPPED,
-            ..Default::default()
-        };
+
         let mut geometry_staging = Buffer::<shaders::ray_trace_shader::Sphere>::new(
             allocator,
             BufferUsageFlags::TRANSFER_SRC,
