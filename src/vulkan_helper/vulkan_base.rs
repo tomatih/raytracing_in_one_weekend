@@ -18,6 +18,15 @@ impl VulkanBase {
     unsafe fn get_physical_device(instance: &ash::Instance) -> vk::PhysicalDevice {
         let physical_devices = instance.enumerate_physical_devices().unwrap();
 
+        let required_extensions = vec![
+            // rt
+            ash::khr::ray_query::NAME,
+            ash::khr::acceleration_structure::NAME,
+            ash::khr::deferred_host_operations::NAME,
+            // present
+            ash::khr::swapchain::NAME,
+        ];
+
         let physical_device = physical_devices
             .iter()
             .find_map(|physical_device| {
@@ -31,7 +40,21 @@ impl VulkanBase {
                     .queue_flags
                     .contains(vk::QueueFlags::COMPUTE);
 
-                if supports_compute && modern_enough {
+                let extensions = instance
+                    .enumerate_device_extension_properties(*physical_device)
+                    .unwrap();
+
+                let mut accum = 0;
+                for ext in extensions {
+                    let name = ext.extension_name_as_c_str().unwrap();
+
+                    if required_extensions.contains(&name) {
+                        accum += 1;
+                    }
+                }
+                let all_extensions_supported = accum == required_extensions.len();
+
+                if supports_compute && modern_enough && all_extensions_supported {
                     Some(*physical_device)
                 } else {
                     None
@@ -69,7 +92,12 @@ impl VulkanBase {
         instance.get_physical_device_features2(*physical_device, &mut features2);
 
         // enable swapchain extension
-        let device_extensions = [swapchain::NAME.as_ptr()];
+        let device_extensions = [
+            ash::khr::ray_query::NAME.as_ptr(),
+            ash::khr::acceleration_structure::NAME.as_ptr(),
+            ash::khr::deferred_host_operations::NAME.as_ptr(),
+            swapchain::NAME.as_ptr()
+        ];
 
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(std::slice::from_ref(&queue_create_info))
