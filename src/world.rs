@@ -1,10 +1,13 @@
 use ash::vk::{
     self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR,
     AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR,
-    AccelerationStructureBuildTypeKHR, AccelerationStructureCreateInfoKHR, AccelerationStructureGeometryAabbsDataKHR,
-    AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryKHR,
-    AccelerationStructureTypeKHR, AccessFlags2, BufferMemoryBarrier2, BufferUsageFlags, BuildAccelerationStructureFlagsKHR,
-    BuildAccelerationStructureModeKHR, DependencyInfo, DeviceSize, GeometryTypeKHR, PipelineStageFlags2,
+    AccelerationStructureBuildTypeKHR, AccelerationStructureCreateInfoKHR,
+    AccelerationStructureDeviceAddressInfoKHR, AccelerationStructureGeometryAabbsDataKHR,
+    AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryInstancesDataKHR,
+    AccelerationStructureGeometryKHR, AccelerationStructureInstanceKHR,
+    AccelerationStructureTypeKHR, AccessFlags2, BufferCopy2, BufferMemoryBarrier2,
+    BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR,
+    CopyBufferInfo2, DependencyInfo, DeviceSize, GeometryTypeKHR, Packed24_8, PipelineStageFlags2,
 };
 use cgmath::Vector4;
 use vk_mem::{AllocationCreateInfo, Allocator};
@@ -201,6 +204,78 @@ impl<'a> WorldCpu {
             command_buffer,
             &blas_infos,
             &blas_build_range_infos,
+        );
+
+        // bundle BLASes
+        let blas_device_address_info =
+            AccelerationStructureDeviceAddressInfoKHR::default().acceleration_structure(blas);
+        let blas_handle =
+            acceleration_loder.get_acceleration_structure_device_address(&blas_device_address_info);
+        let blas_vec = vec![AccelerationStructureInstanceKHR {
+            transform: vk::TransformMatrixKHR {
+                matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            },
+            instance_custom_index_and_mask: Packed24_8::new(0, 0),
+            instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(0, 0),
+            acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
+                device_handle: blas_handle,
+            },
+        }];
+        let mut blas_list_staging = Buffer::<AccelerationStructureInstanceKHR>::new(
+            &allocator,
+            BufferUsageFlags::TRANSFER_SRC,
+            1,
+            staging_buffers_allocation_info.clone(),
+        );
+        blas_list_staging.fill_buffer(blas_vec);
+
+        let blas_list = Buffer::<AccelerationStructureInstanceKHR>::new(
+            &allocator,
+            BufferUsageFlags::TRANSFER_DST
+                | BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            1,
+            main_buffers_allocation_info.clone(),
+        );
+        let blas_list_addres = get_buffer_const_address(&vulkan_base, &blas_list);
+        let blas_list_copy_regions = [BufferCopy2::default().size(blas_list.size)];
+        let blas_list_copy_info = CopyBufferInfo2::default()
+            .src_buffer(blas_list_staging.handle)
+            .dst_buffer(blas_list.handle)
+            .regions(&blas_list_copy_regions);
+        vulkan_base
+            .device
+            .cmd_copy_buffer2(command_buffer, &blas_list_copy_info);
+
+        // setup build geometry info
+        let tlas_geometries = [AccelerationStructureGeometryKHR::default()
+            .geometry_type(GeometryTypeKHR::INSTANCES)
+            .geometry(AccelerationStructureGeometryDataKHR {
+                instances: AccelerationStructureGeometryInstancesDataKHR::default()
+                    .data(blas_list_addres),
+            })];
+
+        let mut tlas_geometry_info = AccelerationStructureBuildGeometryInfoKHR::default()
+            .ty(AccelerationStructureTypeKHR::TOP_LEVEL)
+            .flags(BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+            .mode(BuildAccelerationStructureModeKHR::BUILD)
+            .geometries(&tlas_geometries);
+
+        // setup TLAS buffers`
+        let mut tlas_sizes = AccelerationStructureBuildSizesInfoKHR::default();
+        acceleration_loder.get_acceleration_structure_build_sizes(
+            AccelerationStructureBuildTypeKHR::DEVICE,
+            &tlas_geometry_info,
+            &[1],
+            &mut tlas_sizes,
+        );
+
+        let tlas_scratch = Buffer::<u8>::new(
+            &allocator,
+            BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
+                | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            tlas_sizes.build_scratch_size as usize,
+            main_buffers_allocation_info.clone(),
         );
 
         // main buffers
