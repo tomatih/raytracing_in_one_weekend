@@ -6,7 +6,7 @@ use crate::{
     materials::Material,
     objects::Sphere,
     shaders,
-    vulkan_helper::{Buffer, VulkanBase},
+    vulkan_helper::{get_buffer_address, get_buffer_const_address, Buffer, VulkanBase},
 };
 
 pub struct WorldCpu {
@@ -99,10 +99,6 @@ impl<'a> WorldCpu {
             self.geometry.len(),
             main_buffers_allocation_info.clone()
         );
-        let aabb_device_address_info= BufferDeviceAddressInfo::default()
-            .buffer(aabb_buffer.handle);
-        let aabb_device_address = vulkan_base.device.get_buffer_device_address(&aabb_device_address_info);
-
 
         let aabb_copy_regions = [vk::BufferCopy2::default()
             .src_offset(0)
@@ -130,9 +126,7 @@ impl<'a> WorldCpu {
         vulkan_base.device.cmd_pipeline_barrier2(command_buffer,&blas_dependency_info);
 
         let aabb_data = AccelerationStructureGeometryAabbsDataKHR::default()
-            .data(DeviceOrHostAddressConstKHR{
-                device_address: aabb_device_address
-            })
+            .data(get_buffer_const_address(&vulkan_base, &aabb_buffer))
             .stride(size_of::<AabbPositionsKHR>() as DeviceSize);
 
         let geometry = AccelerationStructureGeometryDataKHR{
@@ -181,9 +175,7 @@ impl<'a> WorldCpu {
             as_size.build_scratch_size as usize,
             main_buffers_allocation_info.clone()
         );
-        let blas_scratch_address_info = BufferDeviceAddressInfo::default().buffer(blas_scratch.handle);
-        let blas_scratch_address = vulkan_base.device.get_buffer_device_address(&blas_scratch_address_info);
-        blas_infos[0].scratch_data = DeviceOrHostAddressKHR{device_address: blas_scratch_address};
+        blas_infos[0].scratch_data = get_buffer_address(&vulkan_base, &blas_scratch);
 
         let blas_buffer = Buffer::<u8>::new(
             allocator,
@@ -191,9 +183,7 @@ impl<'a> WorldCpu {
             as_size.acceleration_structure_size as usize,
             main_buffers_allocation_info.clone()
         );
-        let blas_buffer_address_info = BufferDeviceAddressInfo::default().buffer(blas_buffer.handle);
-        let blas_buffer_address = vulkan_base.device.get_buffer_device_address(&blas_buffer_address_info);
-
+        
         let blas_create_info = AccelerationStructureCreateInfoKHR::default()
             .buffer(blas_buffer.handle)
             .size(as_size.acceleration_structure_size)
