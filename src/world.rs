@@ -1,4 +1,11 @@
-use ash::vk::{self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR, AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR, AccelerationStructureBuildTypeKHR, AccelerationStructureCreateFlagsKHR, AccelerationStructureCreateInfoKHR, AccelerationStructureGeometryAabbsDataKHR, AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryKHR, AccelerationStructureKHR, AccelerationStructureTypeKHR, AccessFlags2, BufferDeviceAddressInfo, BufferMemoryBarrier2, BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR, DependencyInfo, DeviceOrHostAddressConstKHR, DeviceOrHostAddressKHR, DeviceSize, GeometryFlagsKHR, GeometryTypeKHR, PipelineStageFlags2};
+use ash::vk::{
+    self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR,
+    AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR,
+    AccelerationStructureBuildTypeKHR, AccelerationStructureCreateInfoKHR, AccelerationStructureGeometryAabbsDataKHR,
+    AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryKHR,
+    AccelerationStructureTypeKHR, AccessFlags2, BufferMemoryBarrier2, BufferUsageFlags, BuildAccelerationStructureFlagsKHR,
+    BuildAccelerationStructureModeKHR, DependencyInfo, DeviceSize, GeometryTypeKHR, PipelineStageFlags2,
+};
 use cgmath::Vector4;
 use vk_mem::{AllocationCreateInfo, Allocator};
 
@@ -84,24 +91,30 @@ impl<'a> WorldCpu {
             allocator,
             BufferUsageFlags::TRANSFER_SRC,
             self.geometry.len(),
-            staging_buffers_allocation_info.clone()
+            staging_buffers_allocation_info.clone(),
         );
-        let aabb_data = self.geometry.iter().map(|sphere| {
-            AabbPositionsKHR::default()
-                .max_x(sphere.center.x + sphere.radius)
-                .max_y(sphere.center.y + sphere.radius)
-                .max_z(sphere.center.z + sphere.radius)
-                .min_x(sphere.center.x - sphere.radius)
-                .min_y(sphere.center.y - sphere.radius)
-                .min_z(sphere.center.z - sphere.radius)
-        }).collect();
+        let aabb_data = self
+            .geometry
+            .iter()
+            .map(|sphere| {
+                AabbPositionsKHR::default()
+                    .max_x(sphere.center.x + sphere.radius)
+                    .max_y(sphere.center.y + sphere.radius)
+                    .max_z(sphere.center.z + sphere.radius)
+                    .min_x(sphere.center.x - sphere.radius)
+                    .min_y(sphere.center.y - sphere.radius)
+                    .min_z(sphere.center.z - sphere.radius)
+            })
+            .collect();
         aabb_staging.fill_buffer(aabb_data);
 
         let aabb_buffer = Buffer::<AabbPositionsKHR>::new(
             allocator,
-            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR | BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
+            BufferUsageFlags::TRANSFER_DST
+                | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR
+                | BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
             self.geometry.len(),
-            main_buffers_allocation_info.clone()
+            main_buffers_allocation_info.clone(),
         );
 
         let aabb_copy_regions = [vk::BufferCopy2::default()
@@ -116,52 +129,42 @@ impl<'a> WorldCpu {
             .device
             .cmd_copy_buffer2(command_buffer, &geometry_copy_info);
 
-        let blas_memory_barriers = [
-            BufferMemoryBarrier2::default()
-                .buffer(aabb_buffer.handle)
-                .size(aabb_buffer.size)
-                .src_access_mask(AccessFlags2::TRANSFER_WRITE)
-                .src_stage_mask(PipelineStageFlags2::TRANSFER)
-                .dst_access_mask(AccessFlags2::SHADER_READ)
-                .dst_stage_mask(PipelineStageFlags2::ACCELERATION_STRUCTURE_BUILD_KHR)
-        ];
-        let blas_dependency_info = DependencyInfo::default()
-            .buffer_memory_barriers(&blas_memory_barriers);
-        vulkan_base.device.cmd_pipeline_barrier2(command_buffer,&blas_dependency_info);
+        let blas_memory_barriers = [BufferMemoryBarrier2::default()
+            .buffer(aabb_buffer.handle)
+            .size(aabb_buffer.size)
+            .src_access_mask(AccessFlags2::TRANSFER_WRITE)
+            .src_stage_mask(PipelineStageFlags2::TRANSFER)
+            .dst_access_mask(AccessFlags2::SHADER_READ)
+            .dst_stage_mask(PipelineStageFlags2::ACCELERATION_STRUCTURE_BUILD_KHR)];
+        let blas_dependency_info =
+            DependencyInfo::default().buffer_memory_barriers(&blas_memory_barriers);
+        vulkan_base
+            .device
+            .cmd_pipeline_barrier2(command_buffer, &blas_dependency_info);
 
         let aabb_data = AccelerationStructureGeometryAabbsDataKHR::default()
             .data(get_buffer_const_address(&vulkan_base, &aabb_buffer))
             .stride(size_of::<AabbPositionsKHR>() as DeviceSize);
 
-        let geometry = AccelerationStructureGeometryDataKHR{
-            aabbs: aabb_data
-        };
+        let geometry = AccelerationStructureGeometryDataKHR { aabbs: aabb_data };
 
-        let geometries = [
-            AccelerationStructureGeometryKHR::default()
-                .geometry_type(GeometryTypeKHR::AABBS)
-                .geometry(geometry),
-        ];
+        let geometries = [AccelerationStructureGeometryKHR::default()
+            .geometry_type(GeometryTypeKHR::AABBS)
+            .geometry(geometry)];
 
         // BLAS info
-        let mut blas_infos = [
-            AccelerationStructureBuildGeometryInfoKHR::default()
-                .ty(AccelerationStructureTypeKHR::BOTTOM_LEVEL)
-                .flags(BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
-                .mode(BuildAccelerationStructureModeKHR::BUILD)
-                .geometries(&geometries)
-        ];
+        let mut blas_infos = [AccelerationStructureBuildGeometryInfoKHR::default()
+            .ty(AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+            .flags(BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+            .mode(BuildAccelerationStructureModeKHR::BUILD)
+            .geometries(&geometries)];
 
-        let blas_build_range = [
-            AccelerationStructureBuildRangeInfoKHR::default()
-                .primitive_offset(0)
-                .primitive_count(self.geometry.len() as u32)
-        ];
+        let blas_build_range = [AccelerationStructureBuildRangeInfoKHR::default()
+            .primitive_offset(0)
+            .primitive_count(self.geometry.len() as u32)];
 
         // BLAS range
-        let blas_build_range_infos = [
-            blas_build_range.as_slice()
-        ];
+        let blas_build_range_infos = [blas_build_range.as_slice()];
 
         // get BLAS size
         let mut as_size = AccelerationStructureBuildSizesInfoKHR::default();
@@ -169,7 +172,7 @@ impl<'a> WorldCpu {
             AccelerationStructureBuildTypeKHR::DEVICE,
             &blas_infos[0],
             &[self.geometry.len() as u32],
-            &mut as_size
+            &mut as_size,
         );
 
         // make BLAS buffers
@@ -177,22 +180,25 @@ impl<'a> WorldCpu {
             allocator,
             BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR,
             as_size.build_scratch_size as usize,
-            main_buffers_allocation_info.clone()
+            main_buffers_allocation_info.clone(),
         );
         blas_infos[0].scratch_data = get_buffer_address(&vulkan_base, &blas_scratch);
 
         let blas_buffer = Buffer::<u8>::new(
             allocator,
-            BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR,
+            BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
+                | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR,
             as_size.acceleration_structure_size as usize,
-            main_buffers_allocation_info.clone()
+            main_buffers_allocation_info.clone(),
         );
-        
+
         let blas_create_info = AccelerationStructureCreateInfoKHR::default()
             .buffer(blas_buffer.handle)
             .size(as_size.acceleration_structure_size)
             .ty(AccelerationStructureTypeKHR::BOTTOM_LEVEL);
-        let blas = acceleration_loder.create_acceleration_structure(&blas_create_info, None).unwrap();
+        let blas = acceleration_loder
+            .create_acceleration_structure(&blas_create_info, None)
+            .unwrap();
         blas_infos[0].dst_acceleration_structure = blas;
 
         acceleration_loder.cmd_build_acceleration_structures(
@@ -218,7 +224,6 @@ impl<'a> WorldCpu {
             self.materials.len(),
             main_buffers_allocation_info,
         );
-
 
         let mut geometry_staging = Buffer::<shaders::ray_trace_shader::Sphere>::new(
             allocator,
