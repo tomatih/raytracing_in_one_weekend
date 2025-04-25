@@ -12,6 +12,7 @@ mod world;
 use core::{f32, f64};
 
 use ash::vk;
+use ash::vk::DescriptorType;
 use cgmath::{InnerSpace, Vector2, Vector4};
 use common::Color;
 // external imports
@@ -204,7 +205,14 @@ unsafe fn create_descriptor_set_layouts(
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
         .stage_flags(vk::ShaderStageFlags::COMPUTE);
-    let main_descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1];
+
+    let as_binding = vk::DescriptorSetLayoutBinding::default()
+        .binding(2)
+        .descriptor_count(1)
+        .descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
+        .stage_flags(vk::ShaderStageFlags::COMPUTE);
+
+    let main_descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1, as_binding];
     let main_descriptor_set_layout =
         vk::DescriptorSetLayoutCreateInfo::default().bindings(&main_descriptor_set_layout_bindings);
     let main_descriptor_set_layout = vulkan_base

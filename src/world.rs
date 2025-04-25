@@ -1,4 +1,4 @@
-use ash::vk::{self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR, AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR, AccelerationStructureBuildTypeKHR, AccelerationStructureCreateInfoKHR, AccelerationStructureDeviceAddressInfoKHR, AccelerationStructureGeometryAabbsDataKHR, AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryInstancesDataKHR, AccelerationStructureGeometryKHR, AccelerationStructureInstanceKHR, AccelerationStructureKHR, AccelerationStructureTypeKHR, AccessFlags2, BufferCopy2, BufferMemoryBarrier2, BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR, CopyBufferInfo2, DependencyInfo, DeviceSize, GeometryTypeKHR, Packed24_8, PipelineStageFlags2};
+use ash::vk::{self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR, AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR, AccelerationStructureBuildTypeKHR, AccelerationStructureCreateInfoKHR, AccelerationStructureDeviceAddressInfoKHR, AccelerationStructureGeometryAabbsDataKHR, AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryInstancesDataKHR, AccelerationStructureGeometryKHR, AccelerationStructureInstanceKHR, AccelerationStructureKHR, AccelerationStructureTypeKHR, AccessFlags2, BufferCopy2, BufferMemoryBarrier2, BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR, CopyBufferInfo2, DependencyInfo, DescriptorType, DeviceSize, GeometryTypeKHR, Packed24_8, PipelineStageFlags2, WriteDescriptorSetAccelerationStructureKHR};
 use cgmath::Vector4;
 use vk_mem::{AllocationCreateInfo, Allocator};
 
@@ -422,7 +422,14 @@ impl<'a> WorldGpu<'a> {
             .descriptor_count(1)
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .stage_flags(vk::ShaderStageFlags::COMPUTE);
-        let descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1];
+
+        let as_binding = vk::DescriptorSetLayoutBinding::default()
+            .binding(2)
+            .descriptor_count(1)
+            .descriptor_type(DescriptorType::ACCELERATION_STRUCTURE_KHR)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+
+        let descriptor_set_layout_bindings = [buffer_binding_0, buffer_binding_1, as_binding];
         let descriptor_set_layout_info =
             vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_set_layout_bindings);
         let set_layout = vulkan_base
@@ -460,9 +467,20 @@ impl<'a> WorldGpu<'a> {
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .buffer_info(&material_buffer_descriptor_info);
 
+        let as_list = [tlas];
+        let mut as_descriptor_info = WriteDescriptorSetAccelerationStructureKHR::default()
+            .acceleration_structures(&as_list);
+        let as_descriptor_write = vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .dst_binding(2)
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
+            .push_next(&mut as_descriptor_info);
+       
         let descriptor_writes = [
             world_descriptor_write_geometry,
             world_descriptor_write_material,
+            as_descriptor_write,
         ];
         vulkan_base
             .device
