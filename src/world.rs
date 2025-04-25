@@ -1,14 +1,4 @@
-use ash::vk::{
-    self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR,
-    AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR,
-    AccelerationStructureBuildTypeKHR, AccelerationStructureCreateInfoKHR,
-    AccelerationStructureDeviceAddressInfoKHR, AccelerationStructureGeometryAabbsDataKHR,
-    AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryInstancesDataKHR,
-    AccelerationStructureGeometryKHR, AccelerationStructureInstanceKHR,
-    AccelerationStructureTypeKHR, AccessFlags2, BufferCopy2, BufferMemoryBarrier2,
-    BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR,
-    CopyBufferInfo2, DependencyInfo, DeviceSize, GeometryTypeKHR, Packed24_8, PipelineStageFlags2,
-};
+use ash::vk::{self, AabbPositionsKHR, AccelerationStructureBuildGeometryInfoKHR, AccelerationStructureBuildRangeInfoKHR, AccelerationStructureBuildSizesInfoKHR, AccelerationStructureBuildTypeKHR, AccelerationStructureCreateInfoKHR, AccelerationStructureDeviceAddressInfoKHR, AccelerationStructureGeometryAabbsDataKHR, AccelerationStructureGeometryDataKHR, AccelerationStructureGeometryInstancesDataKHR, AccelerationStructureGeometryKHR, AccelerationStructureInstanceKHR, AccelerationStructureKHR, AccelerationStructureTypeKHR, AccessFlags2, BufferCopy2, BufferMemoryBarrier2, BufferUsageFlags, BuildAccelerationStructureFlagsKHR, BuildAccelerationStructureModeKHR, CopyBufferInfo2, DependencyInfo, DeviceSize, GeometryTypeKHR, Packed24_8, PipelineStageFlags2};
 use cgmath::Vector4;
 use vk_mem::{AllocationCreateInfo, Allocator};
 
@@ -30,6 +20,12 @@ pub struct WorldGpu<'a> {
     pub materials: Buffer<'a, Vector4<f32>>,
     pub set_layout: vk::DescriptorSetLayout,
     pub descriptor_set: vk::DescriptorSet,
+
+    pub acceleration_loader: ash::khr::acceleration_structure::Device,
+    pub blas: AccelerationStructureKHR,
+    pub blas_buffer: Buffer<'a, u8>,
+    pub tlas: AccelerationStructureKHR,
+    pub tlas_buffer: Buffer<'a, u8>,
 }
 
 impl<'a> WorldCpu {
@@ -399,7 +395,7 @@ impl<'a> WorldCpu {
             .unwrap();
         vulkan_base.device.destroy_fence(fence, None);
 
-        WorldGpu::new(geometry, materials, descriptor_pool, vulkan_base)
+        WorldGpu::new(geometry, materials, descriptor_pool, vulkan_base, acceleration_loder, blas, blas_buffer, tlas, tlas_buffer)
     }
 }
 
@@ -409,6 +405,11 @@ impl<'a> WorldGpu<'a> {
         mat_buffer: Buffer<'a, Vector4<f32>>,
         descriptor_pool: vk::DescriptorPool,
         vulkan_base: &VulkanBase,
+        acceleration_loader: ash::khr::acceleration_structure::Device,
+        blas: AccelerationStructureKHR,
+        blas_buffer: Buffer<'a, u8>,
+        tlas: AccelerationStructureKHR,
+        tlas_buffer: Buffer<'a, u8>,
     ) -> Self {
         // create descriptor layout
         let buffer_binding_0 = vk::DescriptorSetLayoutBinding::default()
@@ -472,6 +473,11 @@ impl<'a> WorldGpu<'a> {
             materials: mat_buffer,
             set_layout,
             descriptor_set,
+            acceleration_loader,
+            blas,
+            blas_buffer,
+            tlas,
+            tlas_buffer
         }
     }
 
@@ -479,5 +485,8 @@ impl<'a> WorldGpu<'a> {
         vulkan_base
             .device
             .destroy_descriptor_set_layout(self.set_layout, None);
+
+        self.acceleration_loader.destroy_acceleration_structure(self.tlas, None);
+        self.acceleration_loader.destroy_acceleration_structure(self.blas, None);
     }
 }
