@@ -213,9 +213,13 @@ impl<'a> WorldCpu {
             acceleration_loder.get_acceleration_structure_device_address(&blas_device_address_info);
         let blas_vec = vec![AccelerationStructureInstanceKHR {
             transform: vk::TransformMatrixKHR {
-                matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                matrix: [
+                    1.0, 0.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0
+                ],
             },
-            instance_custom_index_and_mask: Packed24_8::new(0, 0),
+            instance_custom_index_and_mask: Packed24_8::new(0, 0xFF),
             instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(0, 0),
             acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
                 device_handle: blas_handle,
@@ -476,7 +480,7 @@ impl<'a> WorldGpu<'a> {
             .descriptor_count(1)
             .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
             .push_next(&mut as_descriptor_info);
-       
+
         let descriptor_writes = [
             world_descriptor_write_geometry,
             world_descriptor_write_material,

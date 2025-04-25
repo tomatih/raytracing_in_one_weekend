@@ -1,5 +1,5 @@
 use ash::{khr::swapchain, vk};
-use ash::vk::PhysicalDeviceAccelerationStructureFeaturesKHR;
+use ash::vk::{PhysicalDeviceAccelerationStructureFeaturesKHR, PhysicalDeviceRayQueryFeaturesKHR};
 #[cfg(debug_assertions)]
 use renderdoc::{RenderDoc, V130};
 
@@ -81,6 +81,7 @@ impl VulkanBase {
             .queue_priorities(&[1.0]);
 
         // get support for everything up to 1.3 (guaranteed by selector)
+        let mut ray_query_features =PhysicalDeviceRayQueryFeaturesKHR::default();
         let mut as_features = PhysicalDeviceAccelerationStructureFeaturesKHR::default();
         let mut features_1_3 = vk::PhysicalDeviceVulkan13Features::default();
         let mut features_1_2 = vk::PhysicalDeviceVulkan12Features::default();
@@ -91,6 +92,7 @@ impl VulkanBase {
             .push_next(&mut features_1_2)
             .push_next(&mut features_1_3)
             .push_next(&mut as_features)
+            .push_next(&mut ray_query_features)
             .features(features);
         instance.get_physical_device_features2(*physical_device, &mut features2);
 

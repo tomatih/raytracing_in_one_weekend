@@ -40,15 +40,15 @@ fn randon_scene() -> WorldCpu {
     let mut out = WorldCpu::new();
 
     // the ground
-    out.add_material(Material::Lambertian {
-        albedo: Color::new(0.5, 0.5, 0.5),
-    });
-    out.add_geometry(Sphere {
-        center: Vec3::new(0.0, -1000.0, 0.0),
-        radius: 1000.0,
-        material: 0,
-        material_type: 0,
-    });
+    // out.add_material(Material::Lambertian {
+    //     albedo: Color::new(0.5, 0.5, 0.5),
+    // });
+    // out.add_geometry(Sphere {
+    //     center: Vec3::new(0.0, -1000.0, 0.0),
+    //     radius: 1000.0,
+    //     material: 0,
+    //     material_type: 0,
+    // });
 
     // the reandom speres
     let mut rng = rand::thread_rng();
