@@ -251,6 +251,19 @@ impl<'a> WorldCpu {
             .device
             .cmd_copy_buffer2(command_buffer, &blas_list_copy_info);
 
+        let tlas_memory_barriers = [BufferMemoryBarrier2::default()
+            .buffer(blas_list.handle)
+            .size(blas_list.size)
+            .src_access_mask(AccessFlags2::TRANSFER_WRITE)
+            .src_stage_mask(PipelineStageFlags2::TRANSFER)
+            .dst_access_mask(AccessFlags2::SHADER_READ)
+            .dst_stage_mask(PipelineStageFlags2::ACCELERATION_STRUCTURE_BUILD_KHR)];
+        let tlas_dependency_info =
+            DependencyInfo::default().buffer_memory_barriers(&tlas_memory_barriers);
+        vulkan_base
+            .device
+            .cmd_pipeline_barrier2(command_buffer, &tlas_dependency_info);
+
         // setup build geometry info
         let tlas_geometries = [AccelerationStructureGeometryKHR::default()
             .geometry_type(GeometryTypeKHR::INSTANCES)
@@ -276,10 +289,36 @@ impl<'a> WorldCpu {
 
         let tlas_scratch = Buffer::<u8>::new(
             &allocator,
-            BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
-                | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             tlas_sizes.build_scratch_size as usize,
             main_buffers_allocation_info.clone(),
+        );
+        let tlas_scratch_address = get_buffer_address(&vulkan_base, &tlas_scratch);
+
+        let tlas_buffer = Buffer::<u8>::new(
+            allocator,
+            BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
+                | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR,
+            tlas_sizes.acceleration_structure_size as usize,
+            main_buffers_allocation_info.clone(),
+        );
+
+        let tlas_creation_info = AccelerationStructureCreateInfoKHR::default()
+            .ty(AccelerationStructureTypeKHR::TOP_LEVEL)
+            .buffer(tlas_buffer.handle)
+            .size(tlas_sizes.acceleration_structure_size as DeviceSize);
+
+        let tlas = acceleration_loder
+            .create_acceleration_structure(&tlas_creation_info, None)
+            .unwrap();
+
+        tlas_geometry_info.scratch_data = tlas_scratch_address;
+        tlas_geometry_info.dst_acceleration_structure = tlas;
+
+        acceleration_loder.cmd_build_acceleration_structures(
+            command_buffer,
+            &[tlas_geometry_info],
+            &[[AccelerationStructureBuildRangeInfoKHR::default().primitive_count(1)].as_slice()],
         );
 
         // main buffers
