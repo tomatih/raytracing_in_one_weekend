@@ -348,8 +348,19 @@ void main() {
 
         while(rayQueryProceedEXT(query)){
             if(rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionAABBEXT){
-                // hit a bounding box
-                rayQueryGenerateIntersectionEXT(query, 0.0);
+                // hit a bounding box, check if hit a sphere
+
+                mat4x3 sphere_matrix = rayQueryGetIntersectionObjectToWorldEXT(query, false);
+
+                Sphere tmp_sphere;
+                tmp_sphere.center = sphere_matrix[3];
+                tmp_sphere.radius = sphere_matrix[0][0];
+                HitRecord tmp_record;
+
+                bool hit = check_hit(ray, 0.001, 1e24, tmp_sphere, tmp_record);
+                if(hit){
+                    rayQueryGenerateIntersectionEXT(query, tmp_record.t);
+                }
             }
         }
 
