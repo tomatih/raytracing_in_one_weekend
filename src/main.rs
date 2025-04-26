@@ -18,7 +18,7 @@ use common::Color;
 // external imports
 use itertools::Itertools;
 use materials::Material;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
 
 use sdl3::event::Event;
 use sdl3::keyboard::{Keycode, Scancode};
@@ -51,8 +51,7 @@ fn randon_scene() -> WorldCpu {
     });
 
     // the reandom speres
-    let mut rng = //rand::thread_rng();
-    rand::rngs::StdRng::from_seed([0;32]);
+    let mut rng = rand::thread_rng();
     for a in -11..11 {
         for b in -11..11 {
             let material_choice = rng.gen::<f32>();
@@ -443,6 +442,7 @@ fn main() {
     }
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
     const SAMPLES_PER_PIXEL: u32 = 500;
+    const SAMPLES_PER_FRAME: u32 = 10;
 
     // camera
     let mut camera = ray_trace_shader::Camera {
@@ -696,9 +696,9 @@ fn main() {
             }
 
             // update push constants
-            for i in 0..4 {
-                push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
-            }
+            // for i in 0..4 {
+            //     push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
+            // }
             push_constants.camera = camera;
 
             // start new frame
@@ -731,43 +731,57 @@ fn main() {
                 );
             }
 
-            // choose buffers
-            let (current_work_set, dest_buffer) = if current_sample % 2 == 0 {
-                (work_descriptor_set_1, &working_buffer_2)
-            } else {
-                (work_descriptor_set_2, &working_buffer_1)
-            };
-            final_push_constant.sample_count = (current_sample + 1).min(SAMPLES_PER_PIXEL);
 
             // render next sample
             if current_sample < SAMPLES_PER_PIXEL {
-                dispatch_pipeline(
-                    vulkan_base,
-                    &command_buffer,
-                    &main_pipeline,
-                    &main_pipeline_layout,
-                    &[current_work_set, world_gpu.descriptor_set],
-                    &push_constants,
-                    windowing_manager.swapchain_extent,
-                );
+                for _ in 0..( SAMPLES_PER_PIXEL - current_sample).min(SAMPLES_PER_FRAME){
+                    // reseed random
+                    for i in 0..4 {
+                        push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
+                    }
 
-                // make sure it finishes
-                submit_dependency(
-                    vulkan_base,
-                    &command_buffer,
-                    &[vk::BufferMemoryBarrier2::default()
-                        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                        .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-                        .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                        .dst_access_mask(vk::AccessFlags2::SHADER_READ)
-                        .buffer(dest_buffer.handle)
-                        .offset(0)
-                        .size(dest_buffer.size)],
-                    &[],
-                );
+                    // choose buffers
+                    let (current_work_set, dest_buffer) = if current_sample % 2 == 0 {
+                        (work_descriptor_set_1, &working_buffer_2)
+                    } else {
+                        (work_descriptor_set_2, &working_buffer_1)
+                    };
 
-                current_sample += 1;
+                    dispatch_pipeline(
+                        vulkan_base,
+                        &command_buffer,
+                        &main_pipeline,
+                        &main_pipeline_layout,
+                        &[current_work_set, world_gpu.descriptor_set],
+                        &push_constants,
+                        windowing_manager.swapchain_extent,
+                    );
+
+                    // make sure it finishes
+                    submit_dependency(
+                        vulkan_base,
+                        &command_buffer,
+                        &[vk::BufferMemoryBarrier2::default()
+                            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                            .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                            .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                            .dst_access_mask(vk::AccessFlags2::SHADER_READ)
+                            .buffer(dest_buffer.handle)
+                            .offset(0)
+                            .size(dest_buffer.size)],
+                        &[],
+                    );
+
+                    current_sample += 1;
+                }
             }
+
+            let current_work_set = if current_sample % 2 != 0 {
+                work_descriptor_set_1
+            } else {
+                work_descriptor_set_2
+            };
+            final_push_constant.sample_count = current_sample;
 
             // generate image from current samples
             dispatch_pipeline(
