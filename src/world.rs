@@ -81,30 +81,23 @@ impl<'a> WorldCpu {
         );
 
         // AS section
-        // will have a single TLAS and a single BLAS as there is only static geometry
-        // TODO: BLAS will have a node for each sphere wan an AABB around it
-        // start with 1 geomety with all spheres in it
 
         // Geometry setup
         let mut aabb_staging = Buffer::<AabbPositionsKHR>::new(
             allocator,
             BufferUsageFlags::TRANSFER_SRC,
-            self.geometry.len(),
+            1,
             staging_buffers_allocation_info.clone(),
         );
-        let aabb_data = self
-            .geometry
-            .iter()
-            .map(|sphere| {
-                AabbPositionsKHR::default()
-                    .max_x(sphere.center.x + sphere.radius)
-                    .max_y(sphere.center.y + sphere.radius)
-                    .max_z(sphere.center.z + sphere.radius)
-                    .min_x(sphere.center.x - sphere.radius)
-                    .min_y(sphere.center.y - sphere.radius)
-                    .min_z(sphere.center.z - sphere.radius)
-            })
-            .collect();
+        let aabb_data = vec![
+            AabbPositionsKHR::default()
+                .max_x(1.0)
+                .max_y(1.0)
+                .max_z(1.0)
+                .min_x(-1.0)
+                .min_y(-1.0)
+                .min_z(-1.0)
+        ];
         aabb_staging.fill_buffer(aabb_data);
 
         let aabb_buffer = Buffer::<AabbPositionsKHR>::new(
@@ -112,7 +105,7 @@ impl<'a> WorldCpu {
             BufferUsageFlags::TRANSFER_DST
                 | BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR
                 | BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
-            self.geometry.len(),
+            1,
             main_buffers_allocation_info.clone(),
         );
 
@@ -160,7 +153,8 @@ impl<'a> WorldCpu {
 
         let blas_build_range = [AccelerationStructureBuildRangeInfoKHR::default()
             .primitive_offset(0)
-            .primitive_count(self.geometry.len() as u32)];
+            .primitive_count(1)
+        ];
 
         // BLAS range
         let blas_build_range_infos = [blas_build_range.as_slice()];
@@ -170,7 +164,7 @@ impl<'a> WorldCpu {
         acceleration_loder.get_acceleration_structure_build_sizes(
             AccelerationStructureBuildTypeKHR::DEVICE,
             &blas_infos[0],
-            &[self.geometry.len() as u32],
+            &[1],
             &mut as_size,
         );
 
@@ -211,24 +205,28 @@ impl<'a> WorldCpu {
             AccelerationStructureDeviceAddressInfoKHR::default().acceleration_structure(blas);
         let blas_handle =
             acceleration_loder.get_acceleration_structure_device_address(&blas_device_address_info);
-        let blas_vec = vec![AccelerationStructureInstanceKHR {
-            transform: vk::TransformMatrixKHR {
-                matrix: [
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, 0.0
-                ],
-            },
-            instance_custom_index_and_mask: Packed24_8::new(0, 0xFF),
-            instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(0, 0),
-            acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
-                device_handle: blas_handle,
-            },
-        }];
+
+        let blas_vec: Vec<AccelerationStructureInstanceKHR> = self.geometry.iter().map(
+            |sphere|{
+                AccelerationStructureInstanceKHR{
+                    transform: vk::TransformMatrixKHR {
+                        matrix: [
+                            sphere.radius, 0.0, 0.0, sphere.center.x,
+                            0.0, sphere.radius, 0.0, sphere.center.y,
+                            0.0, 0.0, sphere.radius, sphere.center.z,
+                        ],
+                    },
+                    instance_custom_index_and_mask: Packed24_8::new(0, 0xFF),
+                    instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(0,0),
+                    acceleration_structure_reference: vk::AccelerationStructureReferenceKHR{device_handle: blas_handle},
+                }
+            }
+        ).collect();
+
         let mut blas_list_staging = Buffer::<AccelerationStructureInstanceKHR>::new(
             &allocator,
             BufferUsageFlags::TRANSFER_SRC,
-            1,
+            blas_vec.len(),
             staging_buffers_allocation_info.clone(),
         );
         blas_list_staging.fill_buffer(blas_vec);
@@ -238,7 +236,7 @@ impl<'a> WorldCpu {
             BufferUsageFlags::TRANSFER_DST
                 | BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
                 | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-            1,
+            blas_list_staging.count,
             main_buffers_allocation_info.clone(),
         );
         let blas_list_addres = get_buffer_const_address(&vulkan_base, &blas_list);
@@ -283,7 +281,7 @@ impl<'a> WorldCpu {
         acceleration_loder.get_acceleration_structure_build_sizes(
             AccelerationStructureBuildTypeKHR::DEVICE,
             &tlas_geometry_info,
-            &[1],
+            &[self.geometry.len() as u32],
             &mut tlas_sizes,
         );
 
@@ -318,8 +316,10 @@ impl<'a> WorldCpu {
         acceleration_loder.cmd_build_acceleration_structures(
             command_buffer,
             &[tlas_geometry_info],
-            &[[AccelerationStructureBuildRangeInfoKHR::default().primitive_count(1)].as_slice()],
+            &[[AccelerationStructureBuildRangeInfoKHR::default().primitive_count(self.geometry.len() as u32)].as_slice()],
         );
+
+
 
         // main buffers
         let main_buffers_allocation_info = AllocationCreateInfo {
