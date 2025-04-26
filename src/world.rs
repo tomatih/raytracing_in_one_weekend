@@ -216,8 +216,8 @@ impl<'a> WorldCpu {
                             0.0, 0.0, sphere.radius, sphere.center.z,
                         ],
                     },
-                    instance_custom_index_and_mask: Packed24_8::new(0, 0xFF),
-                    instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(0,0),
+                    instance_custom_index_and_mask: Packed24_8::new(sphere.material as u32, 0xFF),
+                    instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(sphere.material_type,0),
                     acceleration_structure_reference: vk::AccelerationStructureReferenceKHR{device_handle: blas_handle},
                 }
             }
