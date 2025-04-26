@@ -18,7 +18,7 @@ use common::Color;
 // external imports
 use itertools::Itertools;
 use materials::Material;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 
 use sdl3::event::Event;
 use sdl3::keyboard::{Keycode, Scancode};
@@ -40,18 +40,19 @@ fn randon_scene() -> WorldCpu {
     let mut out = WorldCpu::new();
 
     // the ground
-    // out.add_material(Material::Lambertian {
-    //     albedo: Color::new(0.5, 0.5, 0.5),
-    // });
-    // out.add_geometry(Sphere {
-    //     center: Vec3::new(0.0, -1000.0, 0.0),
-    //     radius: 1000.0,
-    //     material: 0,
-    //     material_type: 0,
-    // });
+    out.add_material(Material::Lambertian {
+        albedo: Color::new(0.5, 0.5, 0.5),
+    });
+    out.add_geometry(Sphere {
+        center: Vec3::new(0.0, -1000.0, 0.0),
+        radius: 1000.0,
+        material: 0,
+        material_type: 0,
+    });
 
     // the reandom speres
-    let mut rng = rand::thread_rng();
+    let mut rng = //rand::thread_rng();
+    rand::rngs::StdRng::from_seed([0;32]);
     for a in -11..11 {
         for b in -11..11 {
             let material_choice = rng.gen::<f32>();
