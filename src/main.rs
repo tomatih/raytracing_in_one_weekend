@@ -332,7 +332,7 @@ fn main() {
 
     let buffer_content = unsafe {
         // init vulkan
-        let vulkan_base = VulkanBase::new();
+        let vulkan_base = VulkanBase::new(&[]);
 
         // init renderdoc
         #[cfg(debug_assertions)]
