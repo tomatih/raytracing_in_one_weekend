@@ -1,7 +1,5 @@
-use ash::{khr::swapchain, vk};
+use ash::vk;
 use ash::vk::{PhysicalDeviceAccelerationStructureFeaturesKHR, PhysicalDeviceRayQueryFeaturesKHR};
-#[cfg(debug_assertions)]
-use renderdoc::{RenderDoc, V130};
 
 pub struct VulkanBase {
     pub entry: ash::Entry, // base DLL/SO
@@ -25,7 +23,7 @@ impl VulkanBase {
             ash::khr::acceleration_structure::NAME,
             ash::khr::deferred_host_operations::NAME,
             // present
-            ash::khr::swapchain::NAME,
+            // ash::khr::swapchain::NAME,
         ];
 
         let physical_device = physical_devices
@@ -101,7 +99,7 @@ impl VulkanBase {
             ash::khr::ray_query::NAME.as_ptr(),
             ash::khr::acceleration_structure::NAME.as_ptr(),
             ash::khr::deferred_host_operations::NAME.as_ptr(),
-            swapchain::NAME.as_ptr()
+            // swapchain::NAME.as_ptr()
         ];
 
         let device_create_info = vk::DeviceCreateInfo::default()
