@@ -1,3 +1,5 @@
+use std::ffi::c_char;
+
 use ash::vk;
 use ash::vk::{PhysicalDeviceAccelerationStructureFeaturesKHR, PhysicalDeviceRayQueryFeaturesKHR};
 
@@ -126,7 +128,7 @@ impl VulkanBase {
             .api_version(vk::API_VERSION_1_3);
         let instance_extensions: Vec<_> = instance_extensions
             .iter()
-            .map(|f| f.as_ptr() as *const i8)
+            .map(|f| f.as_ptr() as *const c_char)
             .collect();
         let create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
