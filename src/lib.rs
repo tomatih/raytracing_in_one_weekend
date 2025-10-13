@@ -1,5 +1,8 @@
 // #![allow(dead_code, unused_variables, unused_mut, unused_imports)]
 
+// setup ffi
+uniffi::setup_scaffolding!();
+
 // project modules
 mod common;
 mod materials;
@@ -293,7 +296,6 @@ unsafe fn update_descriptor_sets(
         .update_descriptor_sets(&descriptor_writes, &[]);
 }
 
-
 unsafe fn render_sample(
     vulkan_base: &VulkanBase,
     pipeline: &vk::Pipeline,
@@ -333,7 +335,7 @@ unsafe fn render_sample(
         .device
         .cmd_dispatch(command_buffer, image_width / 8, image_height / 8, 1);
 
-   vulkan_base.submit_command_buffer(command_buffer, None);
+    vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
 unsafe fn finalize_render(
@@ -425,10 +427,11 @@ unsafe fn finalize_render(
         .device
         .cmd_copy_image_to_buffer2(command_buffer, &copy_image_to_buffer_info);
 
-   vulkan_base.submit_command_buffer(command_buffer, None);
+    vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
-fn main() {
+#[uniffi::export]
+pub fn render_image() {
     println!("Program start");
     // image data
     const ASPECT_RATIO: f32 = 3.0 / 2.0;
@@ -580,19 +583,17 @@ fn main() {
 
         // descriptor set layouts
         let (main_descriptor_set_layout, final_descriptor_set_layout) =
-                    create_descriptor_set_layouts(&vulkan_base);
-
+            create_descriptor_set_layouts(&vulkan_base);
 
         // pipeline layouts
-                let main_pipeline_layout = create_pipeline_layout::<ray_trace_shader::PushConstantData>(
-                    &vulkan_base,
-                    &[world_gpu.set_layout, main_descriptor_set_layout],
-                );
-                let final_pipeline_layout = create_pipeline_layout::<finalize_shader::PushConstantData>(
-                    &vulkan_base,
-                    &[world_gpu.set_layout, final_descriptor_set_layout],
-                );
-
+        let main_pipeline_layout = create_pipeline_layout::<ray_trace_shader::PushConstantData>(
+            &vulkan_base,
+            &[world_gpu.set_layout, main_descriptor_set_layout],
+        );
+        let final_pipeline_layout = create_pipeline_layout::<finalize_shader::PushConstantData>(
+            &vulkan_base,
+            &[world_gpu.set_layout, final_descriptor_set_layout],
+        );
 
         // create pipelines
         let pipeline_cache_create_into = vk::PipelineCacheCreateInfo::default()
@@ -638,11 +639,7 @@ fn main() {
         let descriptor_allocate_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(descriptor_pool)
             .set_layouts(&desctiptor_sets_layouts);
-        let (
-            work_descriptor_set_1,
-            work_descriptor_set_2,
-            final_descriptor_set,
-        ) = vulkan_base
+        let (work_descriptor_set_1, work_descriptor_set_2, final_descriptor_set) = vulkan_base
             .device
             .allocate_descriptor_sets(&descriptor_allocate_info)
             .unwrap()
@@ -651,15 +648,18 @@ fn main() {
             .unwrap();
 
         // update descriptor sets
-        update_descriptor_sets(&vulkan_base, &working_buffer_1, &working_buffer_2, &image_view, work_descriptor_set_1, work_descriptor_set_2, final_descriptor_set);
-
-        // initialize data
-        initialize_gpu_resources(
+        update_descriptor_sets(
             &vulkan_base,
             &working_buffer_1,
             &working_buffer_2,
-            &image,
+            &image_view,
+            work_descriptor_set_1,
+            work_descriptor_set_2,
+            final_descriptor_set,
         );
+
+        // initialize data
+        initialize_gpu_resources(&vulkan_base, &working_buffer_1, &working_buffer_2, &image);
 
         // prepare push constant
         let mut push_constants = ray_trace_shader::PushConstantData {
@@ -668,7 +668,7 @@ fn main() {
             camera: ray_trace_shader::Camera {
                 look_from,
                 aspect_ratio: ASPECT_RATIO,
-                look_angles: Vector2::new(2.0*0.710999, 2.0*0.113399)
+                look_angles: Vector2::new(2.0 * 0.710999, 2.0 * 0.113399),
             },
         };
 
@@ -711,7 +711,10 @@ fn main() {
             IMAGE_HEIGHT,
         );
         // wai on last submission
-        vulkan_base.device.wait_for_fences(&[vulkan_base.fence], true, u64::MAX).unwrap();
+        vulkan_base
+            .device
+            .wait_for_fences(&[vulkan_base.fence], true, u64::MAX)
+            .unwrap();
 
         let image_data = output_buffer.get_buffer_data();
 
@@ -759,9 +762,9 @@ fn main() {
         image_data
     };
 
-    let image =
-        ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..])
-            .unwrap();
-    image.save("out.png").unwrap();
+    // let image =
+    //     ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..])
+    //         .unwrap();
+    // image.save(format!("{}/out.png", output_path)).unwrap();
     println!("Everything worked!");
 }
