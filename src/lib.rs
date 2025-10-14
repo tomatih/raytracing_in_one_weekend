@@ -12,6 +12,7 @@ mod vulkan_helper;
 mod world;
 
 use core::f32;
+use std::io::Cursor;
 
 use ash::vk::{self, DescriptorType};
 use cgmath::{InnerSpace, Vector2, Vector4};
@@ -431,7 +432,7 @@ unsafe fn finalize_render(
 }
 
 #[uniffi::export]
-pub fn render_image() {
+pub fn render_image() -> Vec<u8> {
     println!("Program start");
     // image data
     const ASPECT_RATIO: f32 = 3.0 / 2.0;
@@ -762,9 +763,12 @@ pub fn render_image() {
         image_data
     };
 
-    // let image =
-    //     ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..])
-    //         .unwrap();
-    // image.save(format!("{}/out.png", output_path)).unwrap();
-    println!("Everything worked!");
+    let image =
+        ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..])
+            .unwrap();
+    let mut output: Vec<u8> = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut output), image::ImageFormat::Bmp)
+        .unwrap();
+    output
 }
