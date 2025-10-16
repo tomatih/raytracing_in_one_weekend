@@ -431,22 +431,27 @@ unsafe fn finalize_render(
     vulkan_base.submit_command_buffer(command_buffer, None);
 }
 
+#[derive(uniffi::Record)]
+pub struct RenderConfig {
+    #[uniffi(default = 1200)]
+    pub width: u32,
+
+    #[uniffi(default = 1.5)]
+    pub image_ratio: f32,
+
+    #[uniffi(default = 500)]
+    pub samples_per_pixel: i32,
+}
+
 #[uniffi::export]
-pub fn render_image() -> Vec<u8> {
+pub fn render_image(config: RenderConfig) -> Vec<u8> {
     println!("Program start");
     // image data
-    const ASPECT_RATIO: f32 = 3.0 / 2.0;
-    const IMAGE_WIDTH: u32 = 1200;
-    #[allow(clippy::assertions_on_constants)]
-    {
-        assert!(IMAGE_WIDTH % 8 == 0); // needed for shader
-    }
-    const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
-    const SAMPLES_PER_PIXEL: i32 = 500;
+    assert!(config.width % 8 == 0); // needed for shader
+    let image_height: u32 = (config.width as f32 / config.image_ratio) as u32;
 
     // camera
     let look_from = Point3::new(13.0, 2.0, 3.0);
-    // let look_from = Point3::new(10.0, 0.0, 0.0);
 
     // generate initial rays
     let mut rng = rand::thread_rng();
@@ -505,8 +510,8 @@ pub fn render_image() -> Vec<u8> {
 
         // output image
         let image_extent = vk::Extent3D {
-            width: IMAGE_WIDTH,
-            height: IMAGE_HEIGHT,
+            width: config.width,
+            height: image_height,
             depth: 1,
         };
         let image_create_info = vk::ImageCreateInfo {
@@ -556,7 +561,7 @@ pub fn render_image() -> Vec<u8> {
         let mut output_buffer = Buffer::<u8>::new(
             &allocator,
             vk::BufferUsageFlags::TRANSFER_DST,
-            (IMAGE_HEIGHT * IMAGE_WIDTH * 4) as usize,
+            (image_height * config.width * 4) as usize,
             output_buffer_allocation_info,
         );
 
@@ -569,13 +574,13 @@ pub fn render_image() -> Vec<u8> {
         let working_buffer_1 = Buffer::<Vector4<f32>>::new(
             &allocator,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-            (IMAGE_HEIGHT * IMAGE_WIDTH) as usize,
+            (image_height * config.width) as usize,
             output_buffer_allocation_info.clone(),
         );
         let working_buffer_2 = Buffer::<Vector4<f32>>::new(
             &allocator,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-            (IMAGE_HEIGHT * IMAGE_WIDTH) as usize,
+            (image_height * config.width) as usize,
             output_buffer_allocation_info,
         );
 
@@ -668,13 +673,13 @@ pub fn render_image() -> Vec<u8> {
             initial_seed: [0, 0, 0, 0].into(),
             camera: ray_trace_shader::Camera {
                 look_from,
-                aspect_ratio: ASPECT_RATIO,
+                aspect_ratio: config.image_ratio,
                 look_angles: Vector2::new(2.0 * 0.710999, 2.0 * 0.113399),
             },
         };
 
         // record samples
-        for i in 0..SAMPLES_PER_PIXEL {
+        for i in 0..config.samples_per_pixel {
             for i in 0..4 {
                 push_constants.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
             }
@@ -690,8 +695,8 @@ pub fn render_image() -> Vec<u8> {
                     &work_descriptor_set_2
                 },
                 &push_constants,
-                IMAGE_WIDTH,
-                IMAGE_HEIGHT,
+                config.width,
+                image_height,
             );
         }
 
@@ -699,7 +704,7 @@ pub fn render_image() -> Vec<u8> {
             &vulkan_base,
             &final_pipeline,
             &final_pipeline_layout,
-            if SAMPLES_PER_PIXEL % 2 == 0 {
+            if config.samples_per_pixel % 2 == 0 {
                 &work_descriptor_set_1
             } else {
                 &work_descriptor_set_2
@@ -707,9 +712,9 @@ pub fn render_image() -> Vec<u8> {
             &final_descriptor_set,
             &image,
             &output_buffer,
-            SAMPLES_PER_PIXEL as u32,
-            IMAGE_WIDTH,
-            IMAGE_HEIGHT,
+            config.samples_per_pixel as u32,
+            config.width,
+            image_height,
         );
         // wai on last submission
         vulkan_base
@@ -764,7 +769,7 @@ pub fn render_image() -> Vec<u8> {
     };
 
     let image =
-        ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..])
+        ImageBuffer::<Rgba<u8>, _>::from_raw(config.width, image_height, &buffer_content[..])
             .unwrap();
     let mut output: Vec<u8> = Vec::new();
     image
