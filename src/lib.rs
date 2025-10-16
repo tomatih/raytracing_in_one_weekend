@@ -704,7 +704,7 @@ pub fn render_image(config: RenderConfig) -> Vec<u8> {
             &vulkan_base,
             &final_pipeline,
             &final_pipeline_layout,
-            if config.samples_per_pixel % 2 == 0 {
+            if config.samples_per_pixel % 2 == 1 {
                 &work_descriptor_set_1
             } else {
                 &work_descriptor_set_2
