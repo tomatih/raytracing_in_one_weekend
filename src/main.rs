@@ -17,7 +17,7 @@ use common::Color;
 use image::{ImageBuffer, Rgba};
 use itertools::Itertools;
 use materials::Material;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 
 #[cfg(debug_assertions)]
 use renderdoc::{RenderDoc, V130};
@@ -48,7 +48,7 @@ fn randon_scene() -> WorldCpu {
     });
 
     // the reandom speres
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     for a in -11..11 {
         for b in -11..11 {
             let material_choice = rng.gen::<f32>();
@@ -140,7 +140,7 @@ fn main() {
     let aperture = 0.1;
 
     // generate initial rays
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
     // make the world
     println!("Generating world start");
