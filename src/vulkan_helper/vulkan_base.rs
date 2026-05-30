@@ -3,9 +3,9 @@ use ash::vk;
 pub struct VulkanBase {
     pub _entry: ash::Entry, // base DLL/SO
     pub instance: ash::Instance,
-    pub physical_device: vk::PhysicalDevice,
     pub device: ash::Device,
     pub queue: vk::Queue,
+    pub allocator: vk_mem::Allocator,
 }
 
 impl VulkanBase {
@@ -90,24 +90,26 @@ impl VulkanBase {
 
         let (device, queue) = Self::get_device_and_queue(&instance, &physical_device);
 
+        // VMA setup
+        let allocator_create_info =
+            vk_mem::AllocatorCreateInfo::new(&instance, &device, physical_device);
+        let allocator = vk_mem::Allocator::new(allocator_create_info).unwrap();
+
         Self {
             _entry,
             instance,
-            physical_device,
             device,
             queue,
+            allocator,
         }
     }
-}
 
-impl Drop for VulkanBase {
-    fn drop(&mut self) {
-        unsafe {
-            // make sure nothing is being used
-            self.device.device_wait_idle().unwrap();
+    pub unsafe fn cleanup(self) {
+        self.device.device_wait_idle().unwrap();
 
-            self.device.destroy_device(None);
-            self.instance.destroy_instance(None);
-        }
+        drop(self.allocator);
+
+        self.device.destroy_device(None);
+        self.instance.destroy_instance(None);
     }
 }

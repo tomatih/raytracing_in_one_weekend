@@ -1,10 +1,12 @@
 mod buffer;
+mod render_resources;
 mod vulkan_base;
 
 use std::io::Cursor;
 
 use ash::{util::read_spv, vk};
 pub use buffer::Buffer;
+pub use render_resources::RenderResources;
 pub use vulkan_base::VulkanBase;
 
 pub unsafe fn load_shader(vulkan_base: &VulkanBase, shader_bytes: &[u8]) -> vk::ShaderModule {

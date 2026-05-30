@@ -1,6 +1,6 @@
 use ash::vk::{self, BufferUsageFlags};
 use cgmath::Vector4;
-use vk_mem::{AllocationCreateInfo, Allocator};
+use vk_mem::AllocationCreateInfo;
 
 use crate::{
     materials::Material,
@@ -46,8 +46,7 @@ impl<'a> WorldCpu {
 
     pub unsafe fn upload(
         self,
-        vulkan_base: &VulkanBase,
-        allocator: &'a Allocator,
+        vulkan_base: &'a VulkanBase,
         command_pool: &vk::CommandPool,
     ) -> WorldGpu<'a> {
         // main buffers
@@ -56,13 +55,13 @@ impl<'a> WorldCpu {
             ..Default::default()
         };
         let geometry = Buffer::<shaders::ray_trace_shader::Sphere>::new(
-            allocator,
+            &vulkan_base.allocator,
             BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST,
             self.geometry.len(),
             main_buffers_allocation_info.clone(),
         );
         let materials = Buffer::<Vector4<f32>>::new(
-            allocator,
+            &vulkan_base.allocator,
             BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST,
             self.materials.len(),
             main_buffers_allocation_info,
@@ -76,13 +75,13 @@ impl<'a> WorldCpu {
             ..Default::default()
         };
         let mut geometry_staging = Buffer::<shaders::ray_trace_shader::Sphere>::new(
-            allocator,
+            &vulkan_base.allocator,
             BufferUsageFlags::TRANSFER_SRC,
             self.geometry.len(),
             staging_buffers_allocation_info.clone(),
         );
         let mut materials_staging = Buffer::<Vector4<f32>>::new(
-            allocator,
+            &vulkan_base.allocator,
             BufferUsageFlags::TRANSFER_SRC,
             self.materials.len(),
             staging_buffers_allocation_info,
