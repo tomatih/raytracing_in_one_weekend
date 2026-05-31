@@ -122,6 +122,7 @@ unsafe fn render_image(
     image_width: u32,
     image_height: u32,
     render_push_constant: &mut ray_trace_shader::PushConstantData,
+    batch_size: i32,
 ) {
     // sorce for ray randomization
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
@@ -131,7 +132,7 @@ unsafe fn render_image(
     let dependency_2_to_1 =
         vk::DependencyInfo::default().buffer_memory_barriers(&render_resources.barriers_2_to_1);
 
-    let command_buffer = render_resources.start_command_buffer(vulkan_base);
+    let mut command_buffer = render_resources.start_command_buffer(vulkan_base);
 
     // initialize the pipeline
     vulkan_base.device.cmd_bind_pipeline(
@@ -150,8 +151,8 @@ unsafe fn render_image(
 
     // record samples
     for i in 0..samples_per_pixel {
-        for i in 0..4 {
-            render_push_constant.initial_seed[i] = rng.gen_range(u32::MIN..u32::MAX);
+        for j in 0..4 {
+            render_push_constant.initial_seed[j] = rng.gen_range(u32::MIN..u32::MAX);
         }
 
         vulkan_base.device.cmd_bind_descriptor_sets(
@@ -190,9 +191,30 @@ unsafe fn render_image(
                 &dependency_2_to_1
             },
         );
+
+        if i % batch_size == batch_size - 1 {
+            render_resources.submit_command_buffer(vulkan_base, command_buffer);
+
+            command_buffer = render_resources.start_command_buffer(vulkan_base);
+            vulkan_base.device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::COMPUTE,
+                render_resources.render_pipeline,
+            );
+            vulkan_base.device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::COMPUTE,
+                render_resources.render_pipeline_layout,
+                1,
+                &[render_resources.world_descriptor_set],
+                &[],
+            );
+        }
     }
 
-    render_resources.submit_command_buffer(vulkan_base, command_buffer);
+    if samples_per_pixel % batch_size != 0 {
+        render_resources.submit_command_buffer(vulkan_base, command_buffer);
+    }
 }
 
 unsafe fn get_image_data(
@@ -370,6 +392,7 @@ fn main() {
             IMAGE_WIDTH,
             IMAGE_HEIGHT,
             &mut render_push_constant,
+            SAMPLES_PER_PIXEL / 5,
         );
 
         let image_data = get_image_data(
