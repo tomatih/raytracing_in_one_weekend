@@ -10,6 +10,7 @@ mod world;
 
 use core::f32;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::time::SystemTime;
 
 use ash::vk;
 use cgmath::InnerSpace;
@@ -343,6 +344,7 @@ fn main() {
     }
     const IMAGE_HEIGHT: u32 = (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32;
     const SAMPLES_PER_PIXEL: i32 = 500;
+    const SWEEP_STRIDE: usize = 10;
 
     // camera
     let look_from = Point3::new(13.0, 2.0, 3.0);
@@ -392,6 +394,8 @@ fn main() {
             },
         };
 
+        let reference_start = SystemTime::now();
+
         // clear memory
         render_resources.clear_buffers(&vulkan_base);
 
@@ -413,10 +417,17 @@ fn main() {
             IMAGE_HEIGHT,
         );
 
+        let iteration_time = reference_start.elapsed().unwrap().as_secs_f32();
+
         let reference_hash = calculate_hash(&image_data);
         println!("Obtained reference hash: {:x}", reference_hash);
+        println!(
+            "Single iteration took {:.2}s esitmate for full run: {:.2}h",
+            iteration_time,
+            iteration_time * (SAMPLES_PER_PIXEL as f32 / SWEEP_STRIDE as f32) / 60.0f32 / 60.0f32
+        );
 
-        for i in (1..=SAMPLES_PER_PIXEL).step_by(10) {
+        for i in (1..=SAMPLES_PER_PIXEL).step_by(SWEEP_STRIDE) {
             render_resources.clear_buffers(&vulkan_base);
 
             render_image(

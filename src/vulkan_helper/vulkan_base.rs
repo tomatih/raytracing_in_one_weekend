@@ -32,10 +32,29 @@ impl VulkanBase {
                 }
             })
             .expect("Can't find suitable device");
-        let properties = instance.get_physical_device_properties(physical_device);
+
+        let mut driver_properties = vk::PhysicalDeviceDriverProperties::default();
+        let mut device_properties_2 =
+            vk::PhysicalDeviceProperties2::default().push_next(&mut driver_properties);
+
+        instance.get_physical_device_properties2(physical_device, &mut device_properties_2);
+
         println!(
-            "Chosen: {}",
-            properties.device_name_as_c_str().unwrap().to_str().unwrap()
+            "Chosen GPU: {}",
+            device_properties_2
+                .properties
+                .device_name_as_c_str()
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+        println!(
+            "Driver Info: {}",
+            driver_properties
+                .driver_info_as_c_str()
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
 
         physical_device
