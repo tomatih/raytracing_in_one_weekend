@@ -358,7 +358,7 @@ fn main() {
     let world = randon_scene();
     println!("Generating world end");
 
-    let buffer_content = unsafe {
+    unsafe {
         // init vulkan
         let vulkan_base = VulkanBase::new();
 
@@ -427,6 +427,11 @@ fn main() {
             iteration_time * (SAMPLES_PER_PIXEL as f32 / SWEEP_STRIDE as f32) / 60.0f32 / 60.0f32
         );
 
+        ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &image_data[..])
+            .unwrap()
+            .save("reference_out.png")
+            .unwrap();
+
         for i in (1..=SAMPLES_PER_PIXEL).step_by(SWEEP_STRIDE) {
             render_resources.clear_buffers(&vulkan_base);
 
@@ -452,6 +457,10 @@ fn main() {
 
             if iteration_hash != reference_hash {
                 println!("Difference with batch {}", i);
+                ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &image_data[..])
+                    .unwrap()
+                    .save("broken_out.png")
+                    .unwrap();
                 break;
             } else {
                 println!("Batch {} passes", i);
@@ -466,13 +475,7 @@ fn main() {
         // vulkan cleanup
         render_resources.cleanup(&vulkan_base);
         vulkan_base.cleanup();
-
-        image_data
     };
 
-    let image =
-        ImageBuffer::<Rgba<u8>, _>::from_raw(IMAGE_WIDTH, IMAGE_HEIGHT, &buffer_content[..])
-            .unwrap();
-    image.save("out.png").unwrap();
     println!("Everything worked!");
 }
