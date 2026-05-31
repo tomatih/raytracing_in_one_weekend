@@ -9,6 +9,7 @@ mod vulkan_helper;
 mod world;
 
 use core::f32;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use ash::vk;
 use cgmath::InnerSpace;
@@ -317,9 +318,18 @@ unsafe fn get_image_data(
     render_resources.submit_command_buffer(vulkan_base, command_buffer);
 
     // wait for data to be avaible
-    render_resources.wait_on_render_fence(vulkan_base);
+    vulkan_base
+        .device
+        .wait_for_fences(&[render_resources.render_fence], true, u64::MAX)
+        .unwrap();
 
     render_resources.output_buffer.get_buffer_data()
+}
+
+fn calculate_hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
 }
 
 fn main() {
@@ -392,7 +402,7 @@ fn main() {
             IMAGE_WIDTH,
             IMAGE_HEIGHT,
             &mut render_push_constant,
-            SAMPLES_PER_PIXEL / 5,
+            1,
         );
 
         let image_data = get_image_data(
@@ -402,6 +412,39 @@ fn main() {
             IMAGE_WIDTH,
             IMAGE_HEIGHT,
         );
+
+        let reference_hash = calculate_hash(&image_data);
+        println!("Obtained reference hash: {:x}", reference_hash);
+
+        for i in (1..=SAMPLES_PER_PIXEL).step_by(10) {
+            render_resources.clear_buffers(&vulkan_base);
+
+            render_image(
+                &vulkan_base,
+                &render_resources,
+                SAMPLES_PER_PIXEL,
+                IMAGE_WIDTH,
+                IMAGE_HEIGHT,
+                &mut render_push_constant,
+                i,
+            );
+
+            let image_data = get_image_data(
+                &vulkan_base,
+                &mut render_resources,
+                SAMPLES_PER_PIXEL,
+                IMAGE_WIDTH,
+                IMAGE_HEIGHT,
+            );
+
+            let iteration_hash = calculate_hash(&image_data);
+
+            if iteration_hash != reference_hash {
+                println!("Difference with batch {}", i);
+            } else {
+                println!("Batch {} passes", i);
+            }
+        }
 
         #[cfg(debug_assertions)]
         if let Some(x) = rd.as_mut() {
