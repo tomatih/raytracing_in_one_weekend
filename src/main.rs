@@ -409,7 +409,7 @@ fn main() {
             1,
         );
 
-        let image_data = get_image_data(
+        let mut image_data = get_image_data(
             &vulkan_base,
             &mut render_resources,
             SAMPLES_PER_PIXEL,
@@ -440,7 +440,7 @@ fn main() {
                 i,
             );
 
-            let image_data = get_image_data(
+            image_data = get_image_data(
                 &vulkan_base,
                 &mut render_resources,
                 SAMPLES_PER_PIXEL,
@@ -452,6 +452,7 @@ fn main() {
 
             if iteration_hash != reference_hash {
                 println!("Difference with batch {}", i);
+                break;
             } else {
                 println!("Batch {} passes", i);
             }
