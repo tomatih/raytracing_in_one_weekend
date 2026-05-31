@@ -118,7 +118,6 @@ fn randon_scene() -> WorldCpu {
 unsafe fn render_image(
     vulkan_base: &VulkanBase,
     render_resources: &RenderResources,
-    command_buffer: vk::CommandBuffer,
     samples_per_pixel: i32,
     image_width: u32,
     image_height: u32,
@@ -131,6 +130,8 @@ unsafe fn render_image(
         vk::DependencyInfo::default().buffer_memory_barriers(&render_resources.barriers_1_to_2);
     let dependency_2_to_1 =
         vk::DependencyInfo::default().buffer_memory_barriers(&render_resources.barriers_2_to_1);
+
+    let command_buffer = render_resources.start_command_buffer(vulkan_base);
 
     // initialize the pipeline
     vulkan_base.device.cmd_bind_pipeline(
@@ -190,16 +191,19 @@ unsafe fn render_image(
             },
         );
     }
+
+    render_resources.submit_command_buffer(vulkan_base, command_buffer);
 }
 
 unsafe fn get_image_data(
     vulkan_base: &VulkanBase,
     render_resources: &mut RenderResources,
-    command_buffer: vk::CommandBuffer,
     samples_per_pixel: i32,
     image_width: u32,
     image_height: u32,
 ) -> Vec<u8> {
+    let command_buffer = render_resources.start_command_buffer(vulkan_base);
+
     // prepare image
     let image_init_barrier = [vk::ImageMemoryBarrier2::default()
         .src_stage_mask(vk::PipelineStageFlags2::NONE)
@@ -288,21 +292,7 @@ unsafe fn get_image_data(
         .device
         .cmd_copy_image_to_buffer2(command_buffer, &copy_image_to_buffer_info);
 
-    // submit command buffer
-    vulkan_base
-        .device
-        .end_command_buffer(command_buffer)
-        .unwrap();
-    let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
-    let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
-
-    // wait on all previous commands
-    render_resources.wait_on_render_fence(vulkan_base);
-
-    vulkan_base
-        .device
-        .queue_submit2(vulkan_base.queue, &to_submit, render_resources.render_fence)
-        .unwrap();
+    render_resources.submit_command_buffer(vulkan_base, command_buffer);
 
     // wait for data to be avaible
     render_resources.wait_on_render_fence(vulkan_base);
@@ -370,30 +360,12 @@ fn main() {
             },
         };
 
-        // start command buffer
-        let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
-            .command_buffer_count(1)
-            .command_pool(render_resources.command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY);
-        let command_buffer = vulkan_base
-            .device
-            .allocate_command_buffers(&command_buffer_allocation_info)
-            .unwrap()[0];
-
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        vulkan_base
-            .device
-            .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-            .unwrap();
-
         // clear memory
-        render_resources.clear_buffers(command_buffer, &vulkan_base);
+        render_resources.clear_buffers(&vulkan_base);
 
         render_image(
             &vulkan_base,
             &render_resources,
-            command_buffer,
             SAMPLES_PER_PIXEL,
             IMAGE_WIDTH,
             IMAGE_HEIGHT,
@@ -403,7 +375,6 @@ fn main() {
         let image_data = get_image_data(
             &vulkan_base,
             &mut render_resources,
-            command_buffer,
             SAMPLES_PER_PIXEL,
             IMAGE_WIDTH,
             IMAGE_HEIGHT,

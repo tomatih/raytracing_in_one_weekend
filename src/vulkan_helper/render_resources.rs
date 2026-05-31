@@ -606,11 +606,9 @@ impl<'a> RenderResources<'a> {
         }
     }
 
-    pub unsafe fn clear_buffers(
-        &self,
-        command_buffer: vk::CommandBuffer,
-        vulkan_base: &VulkanBase,
-    ) {
+    pub unsafe fn clear_buffers(&self, vulkan_base: &VulkanBase) {
+        let command_buffer = self.start_command_buffer(vulkan_base);
+
         //TODO: technically only one needs to be filled as other isn't read before writing
         // fill buffers with 0s
         vulkan_base.device.cmd_fill_buffer(
@@ -656,6 +654,8 @@ impl<'a> RenderResources<'a> {
         vulkan_base
             .device
             .cmd_pipeline_barrier2(command_buffer, &initial_dependency_info);
+
+        self.submit_command_buffer(vulkan_base, command_buffer);
     }
 
     pub unsafe fn wait_on_render_fence(&self, vulkan_base: &'a VulkanBase) {
@@ -666,6 +666,49 @@ impl<'a> RenderResources<'a> {
         vulkan_base
             .device
             .reset_fences(&[self.render_fence])
+            .unwrap();
+    }
+
+    pub unsafe fn start_command_buffer(&self, vulkan_base: &'a VulkanBase) -> vk::CommandBuffer {
+        // start command buffer
+        let command_buffer_allocation_info = vk::CommandBufferAllocateInfo::default()
+            .command_buffer_count(1)
+            .command_pool(self.command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY);
+        let command_buffer = vulkan_base
+            .device
+            .allocate_command_buffers(&command_buffer_allocation_info)
+            .unwrap()[0];
+
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        vulkan_base
+            .device
+            .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+            .unwrap();
+
+        command_buffer
+    }
+
+    pub unsafe fn submit_command_buffer(
+        &self,
+        vulkan_base: &'a VulkanBase,
+        command_buffer: vk::CommandBuffer,
+    ) {
+        vulkan_base
+            .device
+            .end_command_buffer(command_buffer)
+            .unwrap();
+
+        let submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
+        let to_submit = [vk::SubmitInfo2::default().command_buffer_infos(&submit_infos)];
+
+        // wait on all previous commands
+        self.wait_on_render_fence(vulkan_base);
+
+        vulkan_base
+            .device
+            .queue_submit2(vulkan_base.queue, &to_submit, self.render_fence)
             .unwrap();
     }
 
